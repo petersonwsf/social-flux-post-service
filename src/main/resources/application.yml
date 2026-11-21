@@ -1,0 +1,99 @@
+spring:
+  application:
+    name: post-service
+  datasource:
+    # Banco PRÓPRIO do serviço (D1: um banco por serviço). Reaproveita, por padrão, as credenciais do authentication_service
+    # (IDENTITY_DB_USER/IDENTITY_DB_PASSWORD) na mesma instância PostgreSQL; sobrescreva com POST_DB_* se quiser um role próprio.
+    url: ${POST_DB_URL:jdbc:postgresql://localhost:5432/${POST_DB_NAME:post}}
+    username: ${POST_DB_USER:${IDENTITY_DB_USER:post}}
+    password: ${POST_DB_PASSWORD:${IDENTITY_DB_PASSWORD:}}
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      # Cobre o maior anexo (GIF de 8 MB); os limites finos (imagem 5 MB, GIF 8 MB) ficam na biblioteca de mídia.
+      max-file-size: 8MB
+      max-request-size: 9MB
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    publisher-confirm-type: simple
+    listener:
+      simple:
+        default-requeue-rejected: false     # falhou após as tentativas -> fila de mensagens mortas (DLQ)
+        retry:
+          enabled: true
+          max-attempts: 5
+          initial-interval: 1s
+          multiplier: 2
+
+server:
+  port: ${SERVER_PORT:8084}
+  forward-headers-strategy: framework
+  tomcat:
+    # Lê (e descarta) uploads acima do limite até este tamanho, para responder 413 JSON em vez de derrubar a conexão.
+    max-swallow-size: 16MB
+  error:
+    include-message: never
+    include-stacktrace: never
+
+management:
+  health:
+    rabbit:
+      enabled: false     # o serviço continua útil sem o broker (o outbox acumula); não derrube a readiness por isso
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+socialflux:
+  # Outbox/inbox/RabbitMQ compartilhados (libs/socialflux-events).
+  events:
+    enabled: ${POST_EVENTS_ENABLED:true}
+    exchange: ${EVENTS_EXCHANGE:socialflux.events}
+    relay-interval: ${POST_OUTBOX_INTERVAL:PT0.5S}
+  # Mídia compartilhada (libs/socialflux-media): imagens (D9), GIFs (D16) e armazenamento no RustFS.
+  media:
+    storage: ${POST_MEDIA_STORAGE:s3}
+    s3:
+      endpoint: ${RUSTFS_ENDPOINT:http://localhost:9000}
+      region: ${RUSTFS_REGION:us-east-1}
+      access-key: ${RUSTFS_ACCESS_KEY:}
+      secret-key: ${RUSTFS_SECRET_KEY:}
+    max-concurrent-processing: ${POST_MEDIA_MAX_CONCURRENT:4}
+
+post:
+  security:
+    # JWKS do authentication_service (chave pública). O serviço NUNCA conhece a chave privada.
+    jwks-uri: ${AUTH_JWKS_URI:http://localhost:8081/.well-known/jwks.json}
+    issuer: ${JWT_ISSUER:http://localhost:8080}
+    audience: ${JWT_AUDIENCE:socialflux-api}
+    clock-skew: ${JWT_CLOCK_SKEW:PT60S}
+  # Origens permitidas em métodos não seguros. Vazio = a própria origem (via X-Forwarded-*).
+  allowed-origins: ${POST_ALLOWED_ORIGINS:}
+  limits:
+    max-body: ${POST_MAX_BODY:1000}
+    posts-per-hour: ${POST_RATE_POSTS_PER_HOUR:60}
+    likes-per-hour: ${POST_RATE_LIKES_PER_HOUR:600}
+  media:
+    bucket: ${POST_MEDIA_BUCKET:post-media}
+    # Objetos sem postagem (falha entre gravar o objeto e a linha) mais velhos que isso são apagados pela varredura.
+    orphan-grace: ${POST_MEDIA_ORPHAN_GRACE:PT1H}
+  maintenance:
+    enabled: ${POST_MAINTENANCE_ENABLED:true}
+    interval: ${POST_MAINTENANCE_INTERVAL:PT1H}
+    # Túmulos de vínculos de seguir removidos (follow_removed) ficam este tempo para barrar eventos atrasados.
+    tombstone-retention: ${POST_TOMBSTONE_RETENTION:P7D}
+    # Conteúdo de contas excluídas é apagado em lotes curtos (uma transação por postagem/curtida).
+    purge-batch-size: ${POST_PURGE_BATCH:200}
+  reconciler:
+    # Rede de segurança: recalcula por count(*) os contadores (curtidas, respostas) e corrige os que divergem.
+    enabled: ${POST_RECONCILER_ENABLED:true}
+    interval: ${POST_RECONCILER_INTERVAL:PT1H}
+    batch-size: ${POST_RECONCILER_BATCH:500}
