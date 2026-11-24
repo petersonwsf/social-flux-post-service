@@ -9,4 +9,11 @@ public interface ContentModerator {
      * @throws ModerationUnavailableException se o provedor falhar (timeout, erro HTTP, resposta ilegível)
      */
     Verdict checkText(String text);
+
+    /**
+     * Analisa uma imagem.
+     *
+     * @throws ModerationUnavailableException se o provedor falhar (timeout, erro HTTP, resposta ilegível)
+     */
+    Verdict checkImage(ModerationImage image);
 }

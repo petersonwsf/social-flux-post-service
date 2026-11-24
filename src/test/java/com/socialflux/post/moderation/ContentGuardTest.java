@@ -1,11 +1,13 @@
 package com.socialflux.post.moderation;
 
+import com.socialflux.media.ProcessedMedia;
 import com.socialflux.post.config.PostProperties;
 import com.socialflux.post.web.ApiException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,70 +17,179 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Tradução do resultado da moderação em erros de negócio e política de falha do provedor. */
 class ContentGuardTest {
 
-    private static PostProperties.Moderation properties(boolean failClosedText) {
-        return new PostProperties.Moderation(true, "chave", "http://localhost", "modelo", Duration.ofSeconds(1),
-                failClosedText, new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.5, 0.7));
+    private static final Verdict HATE = new Verdict(Verdict.Kind.FORBIDDEN, "hate");
+    private static final Verdict SEXUAL = new Verdict(Verdict.Kind.FORBIDDEN, "sexual");
+    private static final Verdict SELF_HARM = new Verdict(Verdict.Kind.SELF_HARM, "self-harm");
+
+    private static ContentGuard guard(boolean failClosedText, boolean failClosedImages, ContentModerator moderator) {
+        PostProperties.Moderation properties = new PostProperties.Moderation(true, "chave", "http://localhost", "modelo",
+                Duration.ofSeconds(1), failClosedText, failClosedImages,
+                new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.7, 0.5, 0.7));
+        return new ContentGuard(moderator, properties);
     }
 
-    private static ContentGuard guard(boolean failClosedText, ContentModerator moderator) {
-        return new ContentGuard(moderator, properties(failClosedText));
+    private static ModerationUnavailableException down() {
+        return new ModerationUnavailableException("fora do ar", null);
     }
+
+    private static ProcessedMedia image(int width) {
+        return new ProcessedMedia(new byte[]{(byte) width}, ProcessedMedia.JPEG, "jpg", width, width, ProcessedMedia.Kind.IMAGE);
+    }
+
+    private static ApiException refusal(Runnable action) {
+        try {
+            action.run();
+        } catch (ApiException e) {
+            return e;
+        }
+        throw new AssertionError("Esperava uma recusa (ApiException)");
+    }
+
+    // ------------------------------------------------------------------ texto
 
     @Test
     void allowedTextPasses() {
-        assertThatCode(() -> guard(false, text -> Verdict.ALLOWED).requireAllowedText("oi")).doesNotThrowAnyException();
+        ContentGuard guard = guard(false, true, StubModerator.forText(text -> Verdict.ALLOWED));
+        assertThatCode(() -> guard.requireAllowedText("oi")).doesNotThrowAnyException();
     }
 
     @Test
     void nullTextIsNotAnalyzed() {
         AtomicInteger calls = new AtomicInteger();
-        ContentGuard guard = guard(true, text -> {
+        ContentGuard guard = guard(true, true, StubModerator.forText(text -> {
             calls.incrementAndGet();
             return Verdict.ALLOWED;
-        });
+        }));
         guard.requireAllowedText(null);
         assertThat(calls).hasValue(0);
     }
 
     @Test
     void forbiddenTextIs422WithGenericMessage() {
-        ContentGuard guard = guard(false, text -> new Verdict(Verdict.Kind.FORBIDDEN, "hate"));
-        assertThatThrownBy(() -> guard.requireAllowedText("x"))
-                .isInstanceOfSatisfying(ApiException.class, e -> {
-                    assertThat(e.status()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
-                    assertThat(e.code()).isEqualTo("conteudo_proibido");
-                    assertThat(e.getMessage()).doesNotContain("hate");
-                });
+        ContentGuard guard = guard(false, true, StubModerator.forText(text -> HATE));
+        ApiException e = refusal(() -> guard.requireAllowedText("x"));
+        assertThat(e.status()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(e.code()).isEqualTo("conteudo_proibido");
+        assertThat(e.getMessage()).doesNotContain("hate");
     }
 
     @Test
-    void selfHarmHasItsOwnCodeAndSupportMessage() {
-        ContentGuard guard = guard(false, text -> new Verdict(Verdict.Kind.SELF_HARM, "self-harm"));
-        assertThatThrownBy(() -> guard.requireAllowedText("x"))
-                .isInstanceOfSatisfying(ApiException.class, e -> {
-                    assertThat(e.status()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
-                    assertThat(e.code()).isEqualTo("conteudo_automutilacao");
-                    assertThat(e.getMessage()).contains("188");
-                });
+    void selfHarmTextHasItsOwnCodeAndSupportMessage() {
+        ContentGuard guard = guard(false, true, StubModerator.forText(text -> SELF_HARM));
+        ApiException e = refusal(() -> guard.requireAllowedText("x"));
+        assertThat(e.status()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(e.code()).isEqualTo("conteudo_automutilacao");
+        assertThat(e.getMessage()).contains("188");
     }
 
     @Test
     void providerFailureLetsTextPassWhenFailOpen() {
-        ContentGuard guard = guard(false, text -> {
-            throw new ModerationUnavailableException("fora do ar", null);
-        });
+        ContentGuard guard = guard(false, true, StubModerator.forText(text -> {
+            throw down();
+        }));
         assertThatCode(() -> guard.requireAllowedText("oi")).doesNotThrowAnyException();
     }
 
     @Test
-    void providerFailureIs503WhenFailClosed() {
-        ContentGuard guard = guard(true, text -> {
-            throw new ModerationUnavailableException("fora do ar", null);
-        });
-        assertThatThrownBy(() -> guard.requireAllowedText("oi"))
-                .isInstanceOfSatisfying(ApiException.class, e -> {
-                    assertThat(e.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-                    assertThat(e.code()).isEqualTo("moderacao_indisponivel");
-                });
+    void providerFailureIs503ForTextWhenFailClosed() {
+        ContentGuard guard = guard(true, false, StubModerator.forText(text -> {
+            throw down();
+        }));
+        ApiException e = refusal(() -> guard.requireAllowedText("oi"));
+        assertThat(e.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(e.code()).isEqualTo("moderacao_indisponivel");
+    }
+
+    // ------------------------------------------------------------------ imagens
+
+    @Test
+    void noImagesAreNotAnalyzed() {
+        AtomicInteger calls = new AtomicInteger();
+        ContentGuard guard = guard(true, true, StubModerator.forImages(i -> {
+            calls.incrementAndGet();
+            return Verdict.ALLOWED;
+        }));
+        guard.requireAllowedImages(List.of());
+        assertThat(calls).hasValue(0);
+    }
+
+    @Test
+    void allowedImagesPassAndEachOneIsAnalyzed() {
+        AtomicInteger calls = new AtomicInteger();
+        ContentGuard guard = guard(false, true, StubModerator.forImages(i -> {
+            calls.incrementAndGet();
+            return Verdict.ALLOWED;
+        }));
+        guard.requireAllowedImages(List.of(image(1), image(2), image(3)));
+        assertThat(calls).hasValue(3);
+    }
+
+    @Test
+    void oneForbiddenImageRefusesThePost() {
+        ContentGuard guard = guard(false, true, StubModerator.forImages(
+                i -> i.bytes()[0] == 2 ? SEXUAL : Verdict.ALLOWED));
+        ApiException e = refusal(() -> guard.requireAllowedImages(List.of(image(1), image(2), image(3))));
+        assertThat(e.status()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
+        assertThat(e.code()).isEqualTo("conteudo_proibido");
+    }
+
+    @Test
+    void selfHarmImageHasItsOwnCode() {
+        ContentGuard guard = guard(false, true, StubModerator.forImages(i -> SELF_HARM));
+        assertThat(refusal(() -> guard.requireAllowedImages(List.of(image(1)))).code()).isEqualTo("conteudo_automutilacao");
+    }
+
+    @Test
+    void providerFailureIs503ForImagesWhenFailClosed() {
+        ContentGuard guard = guard(false, true, StubModerator.forImages(i -> {
+            throw down();
+        }));
+        ApiException e = refusal(() -> guard.requireAllowedImages(List.of(image(1))));
+        assertThat(e.status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(e.code()).isEqualTo("moderacao_indisponivel");
+    }
+
+    @Test
+    void providerFailureLetsImagesPassWhenFailOpen() {
+        ContentGuard guard = guard(true, false, StubModerator.forImages(i -> {
+            throw down();
+        }));
+        assertThatCode(() -> guard.requireAllowedImages(List.of(image(1)))).doesNotThrowAnyException();
+    }
+
+    @Test
+    void forbiddenImageWinsOverProviderFailureOnAnother() {
+        ContentGuard guard = guard(false, true, StubModerator.forImages(i -> {
+            if (i.bytes()[0] == 1) {
+                throw down();
+            }
+            return SEXUAL;
+        }));
+        assertThat(refusal(() -> guard.requireAllowedImages(List.of(image(1), image(2)))).code())
+                .isEqualTo("conteudo_proibido");
+    }
+
+    @Test
+    void unexpectedErrorOnAnImageFollowsTheFailurePolicy() {
+        ContentGuard closed = guard(false, true, StubModerator.forImages(i -> {
+            throw new IllegalStateException("bug");
+        }));
+        assertThat(refusal(() -> closed.requireAllowedImages(List.of(image(1)))).code()).isEqualTo("moderacao_indisponivel");
+    }
+
+    @Test
+    void imagesAreAnalyzedInParallel() {
+        // 3 imagens de ~300 ms cada: em paralelo levam bem menos que a soma (900 ms)
+        ContentGuard guard = guard(false, true, StubModerator.forImages(i -> {
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return Verdict.ALLOWED;
+        }));
+        long start = System.nanoTime();
+        guard.requireAllowedImages(List.of(image(1), image(2), image(3)));
+        assertThat(Duration.ofNanos(System.nanoTime() - start)).isLessThan(Duration.ofMillis(700));
     }
 }

@@ -50,9 +50,9 @@ class OpenAiContentModeratorTest {
     }
 
     private OpenAiContentModerator moderator(Duration timeout) {
-        PostProperties.Thresholds thresholds = new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.5, 0.7);
+        PostProperties.Thresholds thresholds = new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.7, 0.5, 0.7);
         PostProperties.Moderation properties = new PostProperties.Moderation(true, "sk-teste",
-                "http://127.0.0.1:" + server.getAddress().getPort(), "omni-moderation-latest", timeout, false, thresholds);
+                "http://127.0.0.1:" + server.getAddress().getPort(), "omni-moderation-latest", timeout, false, true, thresholds);
         return new OpenAiContentModerator(properties, new ModerationPolicy(thresholds));
     }
 
@@ -139,5 +139,48 @@ class OpenAiContentModeratorTest {
         delayMillis = 1500;
         assertThatThrownBy(() -> moderator(Duration.ofMillis(300)).checkText("x"))
                 .isInstanceOf(ModerationUnavailableException.class);
+    }
+
+    private static ModerationImage image() {
+        return new ModerationImage(new byte[]{1, 2, 3}, "image/jpeg");
+    }
+
+    @Test
+    void imageIsSentAsDataUrlInAnImageInput() {
+        responseBody = scores("{\"sexual\":0.01}");
+        moderator(Duration.ofSeconds(2)).checkImage(image());
+        assertThat(requestBody.get())
+                .contains("\"type\":\"image_url\"")
+                .contains("\"url\":\"data:image/jpeg;base64,AQID\"")
+                .contains("\"model\":\"omni-moderation-latest\"");
+        assertThat(authorization.get()).isEqualTo("Bearer sk-teste");
+    }
+
+    @Test
+    void sexualImageScoreIsForbidden() {
+        responseBody = scores("{\"sexual\":0.93,\"violence\":0.1}");
+        Verdict verdict = moderator(Duration.ofSeconds(2)).checkImage(image());
+        assertThat(verdict.kind()).isEqualTo(Verdict.Kind.FORBIDDEN);
+        assertThat(verdict.category()).isEqualTo("sexual");
+    }
+
+    @Test
+    void graphicViolenceImageScoreIsForbidden() {
+        responseBody = scores("{\"violence\":0.94,\"violence/graphic\":0.85}");
+        assertThat(moderator(Duration.ofSeconds(2)).checkImage(image()).kind()).isEqualTo(Verdict.Kind.FORBIDDEN);
+    }
+
+    @Test
+    void cleanImageIsAllowed() {
+        responseBody = scores("{\"sexual\":0.02,\"violence\":0.03}");
+        assertThat(moderator(Duration.ofSeconds(2)).checkImage(image()).allowed()).isTrue();
+    }
+
+    @Test
+    void imageHttpErrorIsUnavailable() {
+        status = 400;
+        assertThatThrownBy(() -> moderator(Duration.ofSeconds(2)).checkImage(image()))
+                .isInstanceOf(ModerationUnavailableException.class)
+                .hasMessageContaining("400");
     }
 }

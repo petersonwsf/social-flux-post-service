@@ -7,4 +7,9 @@ public class NoopContentModerator implements ContentModerator {
     public Verdict checkText(String text) {
         return Verdict.ALLOWED;
     }
+
+    @Override
+    public Verdict checkImage(ModerationImage image) {
+        return Verdict.ALLOWED;
+    }
 }

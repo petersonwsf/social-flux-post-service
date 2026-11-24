@@ -6,6 +6,7 @@ import com.socialflux.media.ProcessedMedia;
 import com.socialflux.media.storage.MediaStorage;
 import com.socialflux.post.config.PostProperties;
 import com.socialflux.post.domain.PostRepository;
+import com.socialflux.post.moderation.ContentGuard;
 import com.socialflux.post.web.ApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,15 +47,17 @@ public class PostMediaService {
     private final MediaProcessor processor;
     private final MediaStorage storage;
     private final PostRepository posts;
+    private final ContentGuard contentGuard;
     private final String bucket;
     private final PostProperties.Media properties;
     private final Clock clock;
 
     public PostMediaService(MediaProcessor processor, MediaStorage storage, PostRepository posts,
-                            PostProperties properties, Clock clock) {
+                            ContentGuard contentGuard, PostProperties properties, Clock clock) {
         this.processor = processor;
         this.storage = storage;
         this.posts = posts;
+        this.contentGuard = contentGuard;
         this.properties = properties.media();
         this.bucket = this.properties.bucket();
         this.clock = clock;
@@ -70,7 +73,8 @@ public class PostMediaService {
 
     /**
      * Processa TODOS os anexos antes de gravar qualquer um (uma recusa não deixa objeto para trás) e confere as regras do
-     * conjunto: até {@code MAX_IMAGES} e GIF só sozinho. Se gravar um falhar, apaga os já gravados.
+     * conjunto: até {@code MAX_IMAGES} e GIF só sozinho. Depois da moderação (que recusa tudo se uma imagem violar as
+     * regras), grava; se gravar um falhar, apaga os já gravados.
      */
     public List<Stored> storeAll(List<byte[]> uploads) {
         if (uploads.size() > MAX_IMAGES) {
@@ -80,6 +84,7 @@ public class PostMediaService {
         if (processed.size() > 1 && processed.stream().anyMatch(m -> m.kind() == ProcessedMedia.Kind.GIF)) {
             throw ApiException.unprocessable("gif_deve_ficar_sozinho", "Um GIF não pode ser enviado junto com outras imagens");
         }
+        contentGuard.requireAllowedImages(processed);   // moderação ANTES de gravar qualquer objeto (recusa = nada gravado)
         List<Stored> stored = new ArrayList<>();
         try {
             for (ProcessedMedia media : processed) {

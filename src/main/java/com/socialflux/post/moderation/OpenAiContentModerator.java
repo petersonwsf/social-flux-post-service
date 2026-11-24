@@ -10,19 +10,26 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.http.HttpClient;
+import java.util.Base64;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * Moderador de texto pela API de moderação da OpenAI ({@code POST /v1/moderations}). Só lê os scores das categorias que a
- * {@link ModerationPolicy} usa. Qualquer falha vira {@link ModerationUnavailableException} sem o conteúdo na mensagem.
+ * Moderador pela API de moderação da OpenAI ({@code POST /v1/moderations}), para texto e imagem. Só lê os scores das
+ * categorias que a {@link ModerationPolicy} usa. Qualquer falha vira {@link ModerationUnavailableException} sem o conteúdo
+ * (texto ou imagem) na mensagem.
  */
 public class OpenAiContentModerator implements ContentModerator {
 
     private static final String[] TEXT_CATEGORIES = {
             ModerationPolicy.HATE, ModerationPolicy.HATE_THREATENING, ModerationPolicy.HARASSMENT_THREATENING,
-            ModerationPolicy.SELF_HARM,
-            ModerationPolicy.SELF_HARM_INTENT, ModerationPolicy.SELF_HARM_INSTRUCTIONS, ModerationPolicy.VIOLENCE_GRAPHIC};
+            ModerationPolicy.SELF_HARM, ModerationPolicy.SELF_HARM_INTENT, ModerationPolicy.SELF_HARM_INSTRUCTIONS,
+            ModerationPolicy.VIOLENCE_GRAPHIC};
+
+    private static final String[] IMAGE_CATEGORIES = {
+            ModerationPolicy.SEXUAL, ModerationPolicy.VIOLENCE_GRAPHIC, ModerationPolicy.SELF_HARM,
+            ModerationPolicy.SELF_HARM_INTENT, ModerationPolicy.SELF_HARM_INSTRUCTIONS};
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
@@ -45,15 +52,26 @@ public class OpenAiContentModerator implements ContentModerator {
 
     @Override
     public Verdict checkText(String text) {
+        return policy.evaluateText(query(text, TEXT_CATEGORIES));
+    }
+
+    @Override
+    public Verdict checkImage(ModerationImage image) {
+        String dataUrl = "data:" + image.contentType() + ";base64," + Base64.getEncoder().encodeToString(image.bytes());
+        List<Map<String, Object>> input = List.of(Map.of("type", "image_url", "image_url", Map.of("url", dataUrl)));
+        return policy.evaluateImage(query(input, IMAGE_CATEGORIES));
+    }
+
+    private Map<String, Double> query(Object input, String[] categories) {
         try {
-            String request = MAPPER.writeValueAsString(Map.of("model", model, "input", text));
+            String request = MAPPER.writeValueAsString(Map.of("model", model, "input", input));
             String response = client.post()
                     .uri("/v1/moderations")
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(request)
                     .retrieve()
                     .body(String.class);
-            return policy.evaluateText(scoresOf(response));
+            return scoresOf(response, categories);
         } catch (RestClientResponseException e) {
             throw new ModerationUnavailableException("O provedor de moderação respondeu HTTP " + e.getStatusCode().value(), e);
         } catch (RuntimeException e) {
@@ -61,13 +79,13 @@ public class OpenAiContentModerator implements ContentModerator {
         }
     }
 
-    private static Map<String, Double> scoresOf(String response) {
+    private static Map<String, Double> scoresOf(String response, String[] categories) {
         JsonNode scores = MAPPER.readTree(response).path("results").path(0).path("category_scores");
         if (!scores.isObject()) {
             throw new IllegalStateException("Resposta sem category_scores");
         }
         Map<String, Double> result = new LinkedHashMap<>();
-        for (String category : TEXT_CATEGORIES) {
+        for (String category : categories) {
             result.put(category, scores.path(category).asDouble(0.0));
         }
         return result;

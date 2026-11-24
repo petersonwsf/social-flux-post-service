@@ -13,7 +13,7 @@ Plano e decisões: [`../docs/plano-dominio-postagens-servico-proprio.md`](../doc
 | --- | --- |
 | Identidade | Sempre do `sub` do token. Nenhuma rota aceita autor, `id_usuario` ou id de curtida do cliente; `{id}` é só o alvo |
 | Conteúdo | Texto (≤ `POST_MAX_BODY` = 1.000 caracteres, sem ser só espaços; bordas aparadas) **e/ou** anexos (até 5 imagens PNG/JPEG/WebP, ou um GIF sozinho); pelo menos um |
-| Moderação | O **texto** de postagens e respostas passa pela API de moderação da OpenAI antes de qualquer imagem ser processada ou gravada. Bloqueia ódio (`hate`, `hate/threatening`), ameaça ou desejo de morte a alguém (`harassment/threatening`), violência gráfica (`violence/graphic`) e automutilação (`self-harm*`); ofensa comum (`harassment`) e `violence` sozinho (pega brincadeira e notícia) passam. Recusa = 422, nada é gravado. Desligada por padrão. Imagens ainda não são analisadas |
+| Moderação | O **texto** e as **imagens** de postagens e respostas passam pela API de moderação da OpenAI antes de qualquer objeto ser gravado (o texto, antes até de processar as imagens; as imagens, depois do processamento e antes do `put`). Imagem: bloqueia pornografia (`sexual`), violência gráfica e automutilação; GIF é analisado pelo **primeiro quadro**; as imagens da postagem são consultadas em paralelo. Bloqueia ódio (`hate`, `hate/threatening`), ameaça ou desejo de morte a alguém (`harassment/threatening`), violência gráfica (`violence/graphic`) e automutilação (`self-harm*`); ofensa comum (`harassment`) e `violence` sozinho (pega brincadeira e notícia) passam. Recusa de qualquer imagem recusa a postagem inteira, com 422 e nada gravado. Desligada por padrão |
 | Resposta | O pai precisa existir **e** ser visível para quem responde; senão 404 igual a "não existe" |
 | Visibilidade (D6) | Dono, autor público ou aresta "eu sigo o autor" (cópia local de `follow.*`). Vale para postagem avulsa, feed, perfil, respostas, ancestrais, curtir e a imagem. Conta excluída = invisível |
 | Respostas | Cada resposta é filtrada pela visibilidade do **seu** autor |
@@ -28,7 +28,7 @@ Plano e decisões: [`../docs/plano-dominio-postagens-servico-proprio.md`](../doc
 
 | Rota | Sucesso | Erros |
 | --- | --- | --- |
-| `POST /api/postagens` (multipart: `legenda`, `imagens` (até 5, campo repetido; o antigo `imagem` continua aceito), `pai`) | 201 + postagem | 422 `postagem_vazia` / `imagens_demais` / `gif_deve_ficar_sozinho` / `texto_muito_longo` / `imagem_invalida` / `imagem_animada` / `gif_invalido` / `conteudo_proibido` / `conteudo_automutilacao` (mensagem de apoio com o CVV, 188), 413 `imagem_muito_grande`, 404 `postagem_nao_encontrada` (pai), 400 `parametro_invalido`, 429, 503 `perfil_indisponivel` / `servidor_ocupado` / `moderacao_indisponivel` (só com `POST_MODERATION_FAIL_CLOSED_TEXT=true`) |
+| `POST /api/postagens` (multipart: `legenda`, `imagens` (até 5, campo repetido; o antigo `imagem` continua aceito), `pai`) | 201 + postagem | 422 `postagem_vazia` / `imagens_demais` / `gif_deve_ficar_sozinho` / `texto_muito_longo` / `imagem_invalida` / `imagem_animada` / `gif_invalido` / `conteudo_proibido` / `conteudo_automutilacao` (mensagem de apoio com o CVV, 188), 413 `imagem_muito_grande`, 404 `postagem_nao_encontrada` (pai), 400 `parametro_invalido`, 429, 503 `perfil_indisponivel` / `servidor_ocupado` / `moderacao_indisponivel` (provedor de moderação fora do ar: imagens por padrão; texto só com `POST_MODERATION_FAIL_CLOSED_TEXT=true`) |
 | `GET /api/postagens/{id}` | 200 | 404 `postagem_nao_encontrada` (inexistente, invisível ou de conta excluída: igual) |
 | `DELETE /api/postagens/{id}` | 204 | 404; 403 `forbidden` (visível, mas de outra pessoa) |
 | `GET /api/postagens/feed?cursor&limite` | 200 (só raízes, minhas e de quem eu sigo) | 400 `parametro_invalido` |
@@ -120,7 +120,8 @@ Consome (idempotente por inbox; tipos desconhecidos e `aggregateVersion` antigo 
 | `POST_MODERATION_API_KEY` | vazio | Chave da API da OpenAI. Segredo: só no `.env` (gitignored) |
 | `POST_MODERATION_BASE_URL` / `POST_MODERATION_MODEL` / `POST_MODERATION_TIMEOUT` | `https://api.openai.com` / `omni-moderation-latest` / `PT3S` | Provedor, modelo e tempo máximo da chamada |
 | `POST_MODERATION_FAIL_CLOSED_TEXT` | `false` | Provedor fora do ar: `false` deixa o texto passar (aviso no log); `true` recusa com 503 |
-| `POST_MODERATION_HATE` / `_HATE_THREATENING` / `_HARASSMENT_THREATENING` / `_SELF_HARM` / `_VIOLENCE_GRAPHIC` | `0.30` / `0.30` / `0.65` / `0.50` / `0.70` | Score (0 a 1) a partir do qual cada categoria bloqueia. Os scores não são probabilidades: valores iniciais calibrados com frases em português (ofensa comum fica com `hate` ≤ 0,18); ajuste com exemplos reais |
+| `POST_MODERATION_FAIL_CLOSED_IMAGES` | `true` | Provedor fora do ar: `true` recusa as imagens com 503; `false` deixa passar (aviso no log) |
+| `POST_MODERATION_HATE` / `_HATE_THREATENING` / `_HARASSMENT_THREATENING` / `_SEXUAL` / `_SELF_HARM` / `_VIOLENCE_GRAPHIC` | `0.30` / `0.30` / `0.65` / `0.70` / `0.50` / `0.70` | Score (0 a 1) a partir do qual cada categoria bloqueia. Os scores não são probabilidades: valores iniciais calibrados com frases em português (ofensa comum fica com `hate` ≤ 0,18); ajuste com exemplos reais |
 | `POST_MAINTENANCE_ENABLED` / `POST_MAINTENANCE_INTERVAL` / `POST_TOMBSTONE_RETENTION` / `POST_PURGE_BATCH` | `true` / `PT1H` / `P7D` / `200` | Rotinas de manutenção |
 | `POST_RECONCILER_ENABLED` / `POST_RECONCILER_INTERVAL` / `POST_RECONCILER_BATCH` | `true` / `PT1H` / `500` | Reconciliador de contadores |
 
@@ -135,8 +136,9 @@ mvn -pl post_service -am test    # na raiz: PostgreSQL embutido, JWKS local, mí
 
 ## Limites conhecidos
 
-- **Moderação:** o modelo erra preconceito sutil (ex.: "mulher tem que lavar louça" fica com `hate` ≈ 0,18, abaixo do que separa ofensa comum) e racismo velado; só um classificador com prompt próprio pegaria. Só texto por enquanto (imagens e quadros de GIF pendentes); postagens antigas não são revisadas. O texto das
-  postagens (inclusive de contas privadas) é enviado à OpenAI quando ligada: mencione isso na política de privacidade. O texto
+- **Moderação:** o modelo erra preconceito sutil (ex.: "mulher tem que lavar louça" fica com `hate` ≈ 0,18, abaixo do que separa ofensa comum) e racismo velado; só um classificador com prompt próprio pegaria. O provedor **não avalia ódio em imagem** (nem texto dentro da imagem); o limiar `sexual` ainda não foi calibrado com
+  imagens reais; GIF só é analisado pelo primeiro quadro (um conteúdo proibido só em quadros posteriores passa); postagens
+  antigas, avatares e bio não são revisados. O texto e as imagens das postagens (inclusive de contas privadas) são enviados à OpenAI quando ligada: mencione isso na política de privacidade. O texto
   analisado nunca vai para o log (só a categoria que bloqueou). Docker Compose ainda não repassa as variáveis `POST_MODERATION_*`
   ao container (rodando o serviço no host, elas vêm do `.env`).
 

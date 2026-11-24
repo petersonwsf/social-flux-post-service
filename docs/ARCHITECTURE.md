@@ -27,7 +27,7 @@ post_service/
     ├── main/java/com/socialflux/post/
     │   ├── config/               propriedades e relógio
     │   ├── security/             resource server JWT e defesa CSRF
-    │   ├── moderation/           moderação de conteúdo (texto): moderador, política de scores e porta de entrada para o serviço
+    │   ├── moderation/           moderação de conteúdo (texto e imagens): moderador, política de scores e porta de entrada para o serviço
     │   ├── web/                  controllers, DTOs e erros
     │   ├── service/              regras, escrita transacional, mídia, sincronização, rotinas
     │   ├── domain/               repositórios JDBC e registros
@@ -64,11 +64,12 @@ post_service/
 
 | Arquivo | O que representa |
 | --- | --- |
-| `ContentGuard.java` | Usado por `PostService.create`: consulta o moderador e traduz o resultado em 422 `conteudo_proibido` / `conteudo_automutilacao`; se o provedor falhar, libera ou recusa com 503 conforme `fail-closed-text`. Nunca loga o texto |
-| `ContentModerator.java` | Interface: `checkText(texto)` devolve um `Verdict` ou lança `ModerationUnavailableException` |
-| `OpenAiContentModerator.java` | Chama `POST /v1/moderations` (`RestClient`, timeout curto) e lê só os scores das categorias usadas |
+| `ContentGuard.java` | Usado por `PostService.create` (texto) e `PostMediaService.storeAll` (imagens, em paralelo): consulta o moderador e traduz o resultado em 422 `conteudo_proibido` / `conteudo_automutilacao`; se o provedor falhar, libera ou recusa com 503 conforme `fail-closed-text` / `fail-closed-images`. Nunca loga o conteúdo |
+| `ContentModerator.java` | Interface: `checkText(texto)` e `checkImage(imagem)` devolvem um `Verdict` ou lançam `ModerationUnavailableException` |
+| `ModerationImage.java` / `ModerationImages.java` | Imagem a analisar (bytes + tipo) e o preparo da mídia já processada: estática vai como está; GIF vai pelo primeiro quadro, em JPEG |
+| `OpenAiContentModerator.java` | Chama `POST /v1/moderations` (`RestClient`, timeout curto; imagem como data URL base64) e lê só os scores das categorias usadas |
 | `NoopContentModerator.java` | Moderador desligado: aprova tudo |
-| `ModerationPolicy.java` | Regras puras sobre os scores (limiares de `post.moderation.thresholds`); automutilação tem prioridade |
+| `ModerationPolicy.java` | Regras puras sobre os scores de texto e de imagem (limiares de `post.moderation.thresholds`); automutilação tem prioridade |
 | `Verdict.java` / `ModerationUnavailableException.java` | Resultado (`ALLOWED`, `FORBIDDEN`, `SELF_HARM`, com a categoria só para log) e falha do provedor |
 | `ModerationConfig.java` | Escolhe o moderador; ligado sem `POST_MODERATION_API_KEY` falha ao subir |
 
@@ -134,8 +135,8 @@ post_service/
 | `ConcurrencyTest.java` | Curtir × descurtir, curtir × excluir, responder × excluir o pai, respostas simultâneas, exclusões simultâneas na mesma árvore |
 | `MediaTest.java` | Re-codificação e redução, entrega com cabeçalhos e 304, revalidação confere visibilidade, GIF intacto, recusas com códigos, exclusão da árvore apaga objetos, chaves inválidas, varredura de órfãos |
 | `EventsTest.java` | Payloads `post.*` sem dado pessoal, um `deleted` por nó, broker fora do ar, reconciliador, manutenção |
-| `ContentModerationTest.java` | Moderação na criação (moderador falso): texto limpo passa, ódio e automutilação recusados sem gravar nada, respostas também, postagem só com imagem não é analisada |
-| `moderation/ModerationPolicyTest.java` / `ContentGuardTest.java` | Limiares e prioridades da política; erros 422/503 e política de falha do provedor (sem Spring) |
+| `ContentModerationTest.java` | Moderação na criação (moderador falso): texto e imagens proibidos ou de automutilação recusados sem gravar nada (inclusive 1 entre 5 imagens, GIF pelo primeiro quadro e respostas), 503 com o provedor fora do ar |
+| `moderation/ModerationPolicyTest.java` / `ContentGuardTest.java` / `ModerationImagesTest.java` | Limiares e prioridades da política (texto e imagem); erros 422/503, política de falha e paralelismo das imagens; preparo do GIF (sem Spring) |
 | `moderation/OpenAiContentModeratorTest.java` | Cliente contra um servidor HTTP local: cabeçalho e corpo, scores → veredito, erro HTTP, resposta ilegível e timeout |
 | `LimitsTest.java` | 429 de postagens e curtidas com `Retry-After`, tamanho do texto configurável |
 

@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ModerationPolicyTest {
 
     private final ModerationPolicy policy =
-            new ModerationPolicy(new PostProperties.Thresholds(0.80, 0.80, 0.65, 0.50, 0.70));
+            new ModerationPolicy(new PostProperties.Thresholds(0.80, 0.80, 0.65, 0.70, 0.50, 0.70));
 
     @Test
     void cleanTextIsAllowed() {
@@ -79,5 +79,42 @@ class ModerationPolicyTest {
     @Test
     void missingScoresAreIgnored() {
         assertThat(policy.evaluateText(Map.of()).allowed()).isTrue();
+    }
+
+    @Test
+    void sexualImageIsForbidden() {
+        Verdict verdict = policy.evaluateImage(Map.of("sexual", 0.70));
+        assertThat(verdict.kind()).isEqualTo(Verdict.Kind.FORBIDDEN);
+        assertThat(verdict.category()).isEqualTo("sexual");
+    }
+
+    @Test
+    void sexualImageJustBelowTheLimitPasses() {
+        assertThat(policy.evaluateImage(Map.of("sexual", 0.69)).allowed()).isTrue();
+    }
+
+    @Test
+    void graphicViolenceImageIsForbidden() {
+        // foto de sangue e cadáver, medida na API: violence/graphic 0,85 e violence 0,94
+        Verdict verdict = policy.evaluateImage(Map.of("violence/graphic", 0.85, "violence", 0.94));
+        assertThat(verdict.kind()).isEqualTo(Verdict.Kind.FORBIDDEN);
+        assertThat(verdict.category()).isEqualTo("violence/graphic");
+    }
+
+    @Test
+    void plainViolenceImageIsAllowed() {
+        assertThat(policy.evaluateImage(Map.of("violence", 0.95)).allowed()).isTrue();
+    }
+
+    @Test
+    void selfHarmImageIsSelfHarmAndWinsOverSexual() {
+        Verdict verdict = policy.evaluateImage(Map.of("self-harm", 0.6, "sexual", 0.99));
+        assertThat(verdict.kind()).isEqualTo(Verdict.Kind.SELF_HARM);
+    }
+
+    @Test
+    void hateScoreDoesNotBlockAnImage() {
+        // o provedor não avalia ódio em imagem; um score de texto que apareça por engano não deve bloquear
+        assertThat(policy.evaluateImage(Map.of("hate", 0.99, "harassment/threatening", 0.99)).allowed()).isTrue();
     }
 }

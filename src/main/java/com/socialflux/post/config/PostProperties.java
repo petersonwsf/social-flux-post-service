@@ -46,10 +46,12 @@ public record PostProperties(
 
     /**
      * Moderação de conteúdo (API de moderação da OpenAI). Desligada, tudo passa. {@code apiKey} é obrigatória quando ligada
-     * (conferido ao subir). {@code failClosedText}: se o provedor falhar, recusa o texto (503) em vez de deixá-lo passar.
+     * (conferido ao subir). {@code failClosedText}/{@code failClosedImages}: se o provedor falhar,
+     * recusa o texto/as imagens (503) em vez de deixá-los passar.
      */
     public record Moderation(boolean enabled, String apiKey, @NotBlank String baseUrl, @NotBlank String model,
-                             @NotNull Duration timeout, boolean failClosedText, @Valid @NotNull Thresholds thresholds) {
+                             @NotNull Duration timeout, boolean failClosedText, boolean failClosedImages,
+                             @Valid @NotNull Thresholds thresholds) {
     }
 
     /** Scores (0 a 1) a partir dos quais cada categoria bloqueia. Ofensa comum ({@code harassment}) nunca bloqueia. */
@@ -57,6 +59,7 @@ public record PostProperties(
             @DecimalMin("0") @DecimalMax("1") double hate,
             @DecimalMin("0") @DecimalMax("1") double hateThreatening,
             @DecimalMin("0") @DecimalMax("1") double harassmentThreatening,
+            @DecimalMin("0") @DecimalMax("1") double sexual,
             @DecimalMin("0") @DecimalMax("1") double selfHarm,
             @DecimalMin("0") @DecimalMax("1") double violenceGraphic) {
     }
