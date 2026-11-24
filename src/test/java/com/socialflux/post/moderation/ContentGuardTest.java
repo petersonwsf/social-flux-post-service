@@ -24,7 +24,7 @@ class ContentGuardTest {
     private static ContentGuard guard(boolean failClosedText, boolean failClosedImages, ContentModerator moderator) {
         PostProperties.Moderation properties = new PostProperties.Moderation(true, "chave", "http://localhost", "modelo",
                 Duration.ofSeconds(1), failClosedText, failClosedImages,
-                new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.7, 0.5, 0.7));
+                new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.7, 0.5, 0.25, 0.7));
         return new ContentGuard(moderator, properties);
     }
 

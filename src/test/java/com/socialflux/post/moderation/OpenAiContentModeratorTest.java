@@ -50,7 +50,7 @@ class OpenAiContentModeratorTest {
     }
 
     private OpenAiContentModerator moderator(Duration timeout) {
-        PostProperties.Thresholds thresholds = new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.7, 0.5, 0.7);
+        PostProperties.Thresholds thresholds = new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.7, 0.5, 0.25, 0.7);
         PostProperties.Moderation properties = new PostProperties.Moderation(true, "sk-teste",
                 "http://127.0.0.1:" + server.getAddress().getPort(), "omni-moderation-latest", timeout, false, true, thresholds);
         return new OpenAiContentModerator(properties, new ModerationPolicy(thresholds));

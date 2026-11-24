@@ -105,6 +105,8 @@ post:
       # Imagens: pornografia (ainda sem calibração com imagens reais). violence-graphic e self-harm valem para texto e imagem.
       sexual: ${POST_MODERATION_SEXUAL:0.70}
       self-harm: ${POST_MODERATION_SELF_HARM:0.50}
+      # Imagem: os scores de automutilação saem bem mais baixos que no texto (foto de braço com marcas: 0,29, já marcada pela API).
+      self-harm-image: ${POST_MODERATION_SELF_HARM_IMAGE:0.25}
       violence-graphic: ${POST_MODERATION_VIOLENCE_GRAPHIC:0.70}
   maintenance:
     enabled: ${POST_MAINTENANCE_ENABLED:true}

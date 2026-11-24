@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ModerationPolicyTest {
 
     private final ModerationPolicy policy =
-            new ModerationPolicy(new PostProperties.Thresholds(0.80, 0.80, 0.65, 0.70, 0.50, 0.70));
+            new ModerationPolicy(new PostProperties.Thresholds(0.80, 0.80, 0.65, 0.70, 0.50, 0.25, 0.70));
 
     @Test
     void cleanTextIsAllowed() {
@@ -116,5 +116,24 @@ class ModerationPolicyTest {
     void hateScoreDoesNotBlockAnImage() {
         // o provedor não avalia ódio em imagem; um score de texto que apareça por engano não deve bloquear
         assertThat(policy.evaluateImage(Map.of("hate", 0.99, "harassment/threatening", 0.99)).allowed()).isTrue();
+    }
+
+    @Test
+    void selfHarmImageUsesTheLowerImageThreshold() {
+        // foto de braço com marcas, medida na API: self-harm 0,288 (a API já a marca)
+        Verdict verdict = policy.evaluateImage(Map.of("self-harm", 0.288, "violence", 0.186));
+        assertThat(verdict.kind()).isEqualTo(Verdict.Kind.SELF_HARM);
+        assertThat(verdict.category()).isEqualTo("self-harm");
+    }
+
+    @Test
+    void selfHarmImageJustBelowTheImageLimitPasses() {
+        assertThat(policy.evaluateImage(Map.of("self-harm", 0.24)).allowed()).isTrue();
+    }
+
+    @Test
+    void sameSelfHarmScoreInTextStillPasses() {
+        // o limiar mais baixo vale só para imagem: no texto (0,50) a mesma pontuação não bloqueia
+        assertThat(policy.evaluateText(Map.of("self-harm", 0.288)).allowed()).isTrue();
     }
 }

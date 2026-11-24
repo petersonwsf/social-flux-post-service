@@ -61,6 +61,7 @@ public record PostProperties(
             @DecimalMin("0") @DecimalMax("1") double harassmentThreatening,
             @DecimalMin("0") @DecimalMax("1") double sexual,
             @DecimalMin("0") @DecimalMax("1") double selfHarm,
+            @DecimalMin("0") @DecimalMax("1") double selfHarmImage,
             @DecimalMin("0") @DecimalMax("1") double violenceGraphic) {
     }
 

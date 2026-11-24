@@ -32,7 +32,7 @@ public class ModerationPolicy {
 
     /** Avalia os scores de um texto. Automutilação vem primeiro, para a mensagem de apoio prevalecer. */
     public Verdict evaluateText(Map<String, Double> scores) {
-        Verdict selfHarm = selfHarm(scores);
+        Verdict selfHarm = selfHarm(scores, thresholds.selfHarm());
         if (selfHarm != null) {
             return selfHarm;
         }
@@ -53,7 +53,7 @@ public class ModerationPolicy {
 
     /** Avalia os scores de uma imagem. Automutilação vem primeiro, pelo mesmo motivo do texto. */
     public Verdict evaluateImage(Map<String, Double> scores) {
-        Verdict selfHarm = selfHarm(scores);
+        Verdict selfHarm = selfHarm(scores, thresholds.selfHarmImage());
         if (selfHarm != null) {
             return selfHarm;
         }
@@ -66,9 +66,9 @@ public class ModerationPolicy {
         return Verdict.ALLOWED;
     }
 
-    private Verdict selfHarm(Map<String, Double> scores) {
+    private static Verdict selfHarm(Map<String, Double> scores, double threshold) {
         for (String category : new String[]{SELF_HARM, SELF_HARM_INTENT, SELF_HARM_INSTRUCTIONS}) {
-            if (reaches(scores, category, thresholds.selfHarm())) {
+            if (reaches(scores, category, threshold)) {
                 return new Verdict(Verdict.Kind.SELF_HARM, category);
             }
         }
