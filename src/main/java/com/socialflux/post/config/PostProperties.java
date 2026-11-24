@@ -1,6 +1,8 @@
 package com.socialflux.post.config;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -20,6 +22,7 @@ public record PostProperties(
         @DefaultValue List<String> allowedOrigins,
         @Valid @NotNull Limits limits,
         @Valid @NotNull Media media,
+        @Valid @NotNull Moderation moderation,
         @Valid @NotNull Maintenance maintenance,
         @Valid @NotNull Reconciler reconciler) {
 
@@ -39,6 +42,22 @@ public record PostProperties(
 
     /** Bucket das imagens de postagem e o tempo de carência antes de um objeto sem postagem ser considerado órfão. */
     public record Media(@NotBlank String bucket, @NotNull Duration orphanGrace) {
+    }
+
+    /**
+     * Moderação de conteúdo (API de moderação da OpenAI). Desligada, tudo passa. {@code apiKey} é obrigatória quando ligada
+     * (conferido ao subir). {@code failClosedText}: se o provedor falhar, recusa o texto (503) em vez de deixá-lo passar.
+     */
+    public record Moderation(boolean enabled, String apiKey, @NotBlank String baseUrl, @NotBlank String model,
+                             @NotNull Duration timeout, boolean failClosedText, @Valid @NotNull Thresholds thresholds) {
+    }
+
+    /** Scores (0 a 1) a partir dos quais cada categoria bloqueia. Ofensa comum ({@code harassment}) nunca bloqueia. */
+    public record Thresholds(
+            @DecimalMin("0") @DecimalMax("1") double hate,
+            @DecimalMin("0") @DecimalMax("1") double hateThreatening,
+            @DecimalMin("0") @DecimalMax("1") double selfHarm,
+            @DecimalMin("0") @DecimalMax("1") double violenceGraphic) {
     }
 
     /** Rotinas agendadas: poda de túmulos, varredura de órfãos e limpeza de contas excluídas. */

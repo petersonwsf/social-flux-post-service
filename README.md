@@ -13,6 +13,7 @@ Plano e decisões: [`../docs/plano-dominio-postagens-servico-proprio.md`](../doc
 | --- | --- |
 | Identidade | Sempre do `sub` do token. Nenhuma rota aceita autor, `id_usuario` ou id de curtida do cliente; `{id}` é só o alvo |
 | Conteúdo | Texto (≤ `POST_MAX_BODY` = 1.000 caracteres, sem ser só espaços; bordas aparadas) **e/ou** anexos (até 5 imagens PNG/JPEG/WebP, ou um GIF sozinho); pelo menos um |
+| Moderação | O **texto** de postagens e respostas passa pela API de moderação da OpenAI antes de qualquer imagem ser processada ou gravada. Bloqueia ódio pesado (`hate`, `hate/threatening`), violência gráfica (`violence/graphic`) e automutilação (`self-harm*`); ofensa comum (`harassment`) passa. Recusa = 422, nada é gravado. Desligada por padrão. Imagens ainda não são analisadas |
 | Resposta | O pai precisa existir **e** ser visível para quem responde; senão 404 igual a "não existe" |
 | Visibilidade (D6) | Dono, autor público ou aresta "eu sigo o autor" (cópia local de `follow.*`). Vale para postagem avulsa, feed, perfil, respostas, ancestrais, curtir e a imagem. Conta excluída = invisível |
 | Respostas | Cada resposta é filtrada pela visibilidade do **seu** autor |
@@ -27,7 +28,7 @@ Plano e decisões: [`../docs/plano-dominio-postagens-servico-proprio.md`](../doc
 
 | Rota | Sucesso | Erros |
 | --- | --- | --- |
-| `POST /api/postagens` (multipart: `legenda`, `imagens` (até 5, campo repetido; o antigo `imagem` continua aceito), `pai`) | 201 + postagem | 422 `postagem_vazia` / `imagens_demais` / `gif_deve_ficar_sozinho` / `texto_muito_longo` / `imagem_invalida` / `imagem_animada` / `gif_invalido`, 413 `imagem_muito_grande`, 404 `postagem_nao_encontrada` (pai), 400 `parametro_invalido`, 429, 503 `perfil_indisponivel` / `servidor_ocupado` |
+| `POST /api/postagens` (multipart: `legenda`, `imagens` (até 5, campo repetido; o antigo `imagem` continua aceito), `pai`) | 201 + postagem | 422 `postagem_vazia` / `imagens_demais` / `gif_deve_ficar_sozinho` / `texto_muito_longo` / `imagem_invalida` / `imagem_animada` / `gif_invalido` / `conteudo_proibido` / `conteudo_automutilacao` (mensagem de apoio com o CVV, 188), 413 `imagem_muito_grande`, 404 `postagem_nao_encontrada` (pai), 400 `parametro_invalido`, 429, 503 `perfil_indisponivel` / `servidor_ocupado` / `moderacao_indisponivel` (só com `POST_MODERATION_FAIL_CLOSED_TEXT=true`) |
 | `GET /api/postagens/{id}` | 200 | 404 `postagem_nao_encontrada` (inexistente, invisível ou de conta excluída: igual) |
 | `DELETE /api/postagens/{id}` | 204 | 404; 403 `forbidden` (visível, mas de outra pessoa) |
 | `GET /api/postagens/feed?cursor&limite` | 200 (só raízes, minhas e de quem eu sigo) | 400 `parametro_invalido` |
@@ -115,6 +116,11 @@ Consome (idempotente por inbox; tipos desconhecidos e `aggregateVersion` antigo 
 | `POST_MEDIA_MAX_CONCURRENT` | `4` | Processamentos de imagem simultâneos (sem vaga em ~5 s → 503 `servidor_ocupado`) |
 | `POST_MEDIA_ORPHAN_GRACE` | `PT1H` | Idade mínima de um objeto sem postagem para ser apagado |
 | `RUSTFS_ENDPOINT`, `RUSTFS_ACCESS_KEY`, `RUSTFS_SECRET_KEY`, `RUSTFS_REGION` | `http://localhost:9000`… | Armazenamento S3 compatível. Hoje a credencial **raiz** do RustFS (credencial por bucket pendente, D18) |
+| `POST_MODERATION_ENABLED` | `false` | Liga a moderação de texto. Ligada, exige `POST_MODERATION_API_KEY` (falha ao subir sem ela) |
+| `POST_MODERATION_API_KEY` | vazio | Chave da API da OpenAI. Segredo: só no `.env` (gitignored) |
+| `POST_MODERATION_BASE_URL` / `POST_MODERATION_MODEL` / `POST_MODERATION_TIMEOUT` | `https://api.openai.com` / `omni-moderation-latest` / `PT3S` | Provedor, modelo e tempo máximo da chamada |
+| `POST_MODERATION_FAIL_CLOSED_TEXT` | `false` | Provedor fora do ar: `false` deixa o texto passar (aviso no log); `true` recusa com 503 |
+| `POST_MODERATION_HATE` / `_HATE_THREATENING` / `_SELF_HARM` / `_VIOLENCE_GRAPHIC` | `0.80` / `0.80` / `0.50` / `0.70` | Score (0 a 1) a partir do qual cada categoria bloqueia. Os scores não são probabilidades: ajuste com exemplos reais em português |
 | `POST_MAINTENANCE_ENABLED` / `POST_MAINTENANCE_INTERVAL` / `POST_TOMBSTONE_RETENTION` / `POST_PURGE_BATCH` | `true` / `PT1H` / `P7D` / `200` | Rotinas de manutenção |
 | `POST_RECONCILER_ENABLED` / `POST_RECONCILER_INTERVAL` / `POST_RECONCILER_BATCH` | `true` / `PT1H` / `500` | Reconciliador de contadores |
 
@@ -128,6 +134,11 @@ mvn -pl post_service -am test    # na raiz: PostgreSQL embutido, JWKS local, mí
 ```
 
 ## Limites conhecidos
+
+- **Moderação:** só texto por enquanto (imagens e quadros de GIF pendentes); postagens antigas não são revisadas. O texto das
+  postagens (inclusive de contas privadas) é enviado à OpenAI quando ligada: mencione isso na política de privacidade. O texto
+  analisado nunca vai para o log (só a categoria que bloqueou). Docker Compose ainda não repassa as variáveis `POST_MODERATION_*`
+  ao container (rodando o serviço no host, elas vêm do `.env`).
 
 - A **revogação imediata** do token (logout geral, troca de senha) é aplicada pelo gateway (`forward_auth`); o serviço só valida
   assinatura e validade do JWT. Não o exponha sem o gateway.

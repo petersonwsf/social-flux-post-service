@@ -27,6 +27,7 @@ post_service/
     ├── main/java/com/socialflux/post/
     │   ├── config/               propriedades e relógio
     │   ├── security/             resource server JWT e defesa CSRF
+    │   ├── moderation/           moderação de conteúdo (texto): moderador, política de scores e porta de entrada para o serviço
     │   ├── web/                  controllers, DTOs e erros
     │   ├── service/              regras, escrita transacional, mídia, sincronização, rotinas
     │   ├── domain/               repositórios JDBC e registros
@@ -58,6 +59,18 @@ post_service/
 | `JwtDecoderConfig.java` | Decoder RS256 pelo JWKS do auth, com validação de expiração, issuer e audiência |
 | `JwtAuthorities.java` | Só token de usuário (`sub` UUID) ganha `ROLE_*`; token de serviço fica sem autoridade |
 | `OriginCheckFilter.java` | Defesa CSRF em métodos não seguros (`Sec-Fetch-Site` e `Origin`) |
+
+### `moderation/`
+
+| Arquivo | O que representa |
+| --- | --- |
+| `ContentGuard.java` | Usado por `PostService.create`: consulta o moderador e traduz o resultado em 422 `conteudo_proibido` / `conteudo_automutilacao`; se o provedor falhar, libera ou recusa com 503 conforme `fail-closed-text`. Nunca loga o texto |
+| `ContentModerator.java` | Interface: `checkText(texto)` devolve um `Verdict` ou lança `ModerationUnavailableException` |
+| `OpenAiContentModerator.java` | Chama `POST /v1/moderations` (`RestClient`, timeout curto) e lê só os scores das categorias usadas |
+| `NoopContentModerator.java` | Moderador desligado: aprova tudo |
+| `ModerationPolicy.java` | Regras puras sobre os scores (limiares de `post.moderation.thresholds`); automutilação tem prioridade |
+| `Verdict.java` / `ModerationUnavailableException.java` | Resultado (`ALLOWED`, `FORBIDDEN`, `SELF_HARM`, com a categoria só para log) e falha do provedor |
+| `ModerationConfig.java` | Escolhe o moderador; ligado sem `POST_MODERATION_API_KEY` falha ao subir |
 
 ### `web/`
 
@@ -121,6 +134,9 @@ post_service/
 | `ConcurrencyTest.java` | Curtir × descurtir, curtir × excluir, responder × excluir o pai, respostas simultâneas, exclusões simultâneas na mesma árvore |
 | `MediaTest.java` | Re-codificação e redução, entrega com cabeçalhos e 304, revalidação confere visibilidade, GIF intacto, recusas com códigos, exclusão da árvore apaga objetos, chaves inválidas, varredura de órfãos |
 | `EventsTest.java` | Payloads `post.*` sem dado pessoal, um `deleted` por nó, broker fora do ar, reconciliador, manutenção |
+| `ContentModerationTest.java` | Moderação na criação (moderador falso): texto limpo passa, ódio e automutilação recusados sem gravar nada, respostas também, postagem só com imagem não é analisada |
+| `moderation/ModerationPolicyTest.java` / `ContentGuardTest.java` | Limiares e prioridades da política; erros 422/503 e política de falha do provedor (sem Spring) |
+| `moderation/OpenAiContentModeratorTest.java` | Cliente contra um servidor HTTP local: cabeçalho e corpo, scores → veredito, erro HTTP, resposta ilegível e timeout |
 | `LimitsTest.java` | 429 de postagens e curtidas com `Retry-After`, tamanho do texto configurável |
 
 ## `.github/workflows/`

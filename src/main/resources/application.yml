@@ -85,6 +85,20 @@ post:
     bucket: ${POST_MEDIA_BUCKET:post-media}
     # Objetos sem postagem (falha entre gravar o objeto e a linha) mais velhos que isso são apagados pela varredura.
     orphan-grace: ${POST_MEDIA_ORPHAN_GRACE:PT1H}
+  moderation:
+    # Desligada por padrão (tudo passa). Ligada, exige POST_MODERATION_API_KEY (chave da API de moderação da OpenAI).
+    enabled: ${POST_MODERATION_ENABLED:false}
+    api-key: ${POST_MODERATION_API_KEY:}
+    base-url: ${POST_MODERATION_BASE_URL:https://api.openai.com}
+    model: ${POST_MODERATION_MODEL:omni-moderation-latest}
+    timeout: ${POST_MODERATION_TIMEOUT:PT3S}
+    # Texto: se o provedor falhar, deixa passar (false) ou recusa com 503 (true).
+    fail-closed-text: ${POST_MODERATION_FAIL_CLOSED_TEXT:false}
+    thresholds:
+      hate: ${POST_MODERATION_HATE:0.80}
+      hate-threatening: ${POST_MODERATION_HATE_THREATENING:0.80}
+      self-harm: ${POST_MODERATION_SELF_HARM:0.50}
+      violence-graphic: ${POST_MODERATION_VIOLENCE_GRAPHIC:0.70}
   maintenance:
     enabled: ${POST_MAINTENANCE_ENABLED:true}
     interval: ${POST_MAINTENANCE_INTERVAL:PT1H}

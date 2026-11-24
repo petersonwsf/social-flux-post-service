@@ -8,6 +8,7 @@ import com.socialflux.post.domain.Cursor;
 import com.socialflux.post.domain.PostRepository;
 import com.socialflux.post.domain.PostView;
 import com.socialflux.post.domain.UserRef;
+import com.socialflux.post.moderation.ContentGuard;
 import com.socialflux.post.web.ApiException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -45,18 +46,20 @@ public class PostService {
     private final AuthorRepository authors;
     private final PostWriter writer;
     private final PostMediaService media;
+    private final ContentGuard contentGuard;
     private final RateLimiter rateLimiter;
     private final PostProperties.Limits limits;
     private final TransactionTemplate tx;
     private final Clock clock;
 
     public PostService(PostRepository posts, AuthorRepository authors, PostWriter writer, PostMediaService media,
-                       RateLimiter rateLimiter, PostProperties properties, PlatformTransactionManager txManager,
-                       Clock clock) {
+                       ContentGuard contentGuard, RateLimiter rateLimiter, PostProperties properties,
+                       PlatformTransactionManager txManager, Clock clock) {
         this.posts = posts;
         this.authors = authors;
         this.writer = writer;
         this.media = media;
+        this.contentGuard = contentGuard;
         this.rateLimiter = rateLimiter;
         this.limits = properties.limits();
         this.tx = new TransactionTemplate(txManager);
@@ -81,6 +84,7 @@ public class PostService {
         if (parentId != null && posts.findVisible(author, parentId).isEmpty()) {
             throw ApiException.postNotFound();   // checagem barata antes de processar a imagem; a definitiva é na transação
         }
+        contentGuard.requireAllowedText(body);   // moderação do texto, antes de processar ou gravar qualquer imagem
 
         List<PostMediaService.Stored> stored = hasImage ? media.storeAll(images) : List.of();
         UUID id = EventIds.v7(clock);
