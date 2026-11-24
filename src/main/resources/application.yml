@@ -85,6 +85,29 @@ post:
     bucket: ${POST_MEDIA_BUCKET:post-media}
     # Objetos sem postagem (falha entre gravar o objeto e a linha) mais velhos que isso são apagados pela varredura.
     orphan-grace: ${POST_MEDIA_ORPHAN_GRACE:PT1H}
+  moderation:
+    # Desligada por padrão (tudo passa). Ligada, exige POST_MODERATION_API_KEY (chave da API de moderação da OpenAI).
+    enabled: ${POST_MODERATION_ENABLED:false}
+    api-key: ${POST_MODERATION_API_KEY:}
+    base-url: ${POST_MODERATION_BASE_URL:https://api.openai.com}
+    model: ${POST_MODERATION_MODEL:omni-moderation-latest}
+    timeout: ${POST_MODERATION_TIMEOUT:PT3S}
+    # Texto: se o provedor falhar, deixa passar (false) ou recusa com 503 (true).
+    fail-closed-text: ${POST_MODERATION_FAIL_CLOSED_TEXT:false}
+    # Imagens: provedor fora do ar recusa com 503 (true) ou deixa passar (false). Fechado por padrão: o risco é maior.
+    fail-closed-images: ${POST_MODERATION_FAIL_CLOSED_IMAGES:true}
+    thresholds:
+      # Calibrados com frases em português: ofensa comum fica com hate <= 0,18; ódio de verdade, de 0,35 para cima.
+      hate: ${POST_MODERATION_HATE:0.30}
+      hate-threatening: ${POST_MODERATION_HATE_THREATENING:0.30}
+      # Ameaça ou desejo de morte a alguém ("fulano tem que morrer"); brincadeira ("eu mato quem...") fica abaixo.
+      harassment-threatening: ${POST_MODERATION_HARASSMENT_THREATENING:0.65}
+      # Imagens: pornografia (ainda sem calibração com imagens reais). violence-graphic e self-harm valem para texto e imagem.
+      sexual: ${POST_MODERATION_SEXUAL:0.70}
+      self-harm: ${POST_MODERATION_SELF_HARM:0.50}
+      # Imagem: os scores de automutilação saem bem mais baixos que no texto (foto de braço com marcas: 0,29, já marcada pela API).
+      self-harm-image: ${POST_MODERATION_SELF_HARM_IMAGE:0.25}
+      violence-graphic: ${POST_MODERATION_VIOLENCE_GRAPHIC:0.70}
   maintenance:
     enabled: ${POST_MAINTENANCE_ENABLED:true}
     interval: ${POST_MAINTENANCE_INTERVAL:PT1H}
