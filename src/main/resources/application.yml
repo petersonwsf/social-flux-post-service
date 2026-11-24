@@ -11,9 +11,9 @@ spring:
     enabled: true
   servlet:
     multipart:
-      # Cobre o maior anexo (GIF de 8 MB); os limites finos (imagem 5 MB, GIF 8 MB) ficam na biblioteca de mídia.
+      # Cobre o maior anexo (GIF de 8 MB) e até 5 imagens de 5 MB; os limites finos (imagem 5 MB, GIF 8 MB) ficam na biblioteca de mídia.
       max-file-size: 8MB
-      max-request-size: 9MB
+      max-request-size: 30MB
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}

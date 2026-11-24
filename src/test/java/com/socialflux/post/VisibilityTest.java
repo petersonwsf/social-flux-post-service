@@ -68,6 +68,19 @@ class VisibilityTest extends AbstractPostTest {
     }
 
     @Test
+    void feedIncludesTheViewersOwnRootPostsButNotTheirReplies() {
+        TestUser me = newUser();
+        TestUser pub = newUser();
+        String mine = post(me, "minha postagem");
+        String other = post(pub, "de quem não sigo");
+        reply(me, other, "minha resposta não vai ao feed");
+
+        assertThat(ids(get(me, "/api/postagens/feed"))).containsExactly(mine);
+        follow(me, pub);
+        assertThat(ids(get(me, "/api/postagens/feed"))).containsExactlyInAnyOrder(mine, other);
+    }
+
+    @Test
     void repliesAreFilteredByTheirOwnAuthor() {
         TestUser pub = newUser();
         TestUser priv = newUser(true);

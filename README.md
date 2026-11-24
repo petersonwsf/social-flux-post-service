@@ -12,7 +12,7 @@ Plano e decisões: [`../docs/plano-dominio-postagens-servico-proprio.md`](../doc
 | Regra | Detalhe |
 | --- | --- |
 | Identidade | Sempre do `sub` do token. Nenhuma rota aceita autor, `id_usuario` ou id de curtida do cliente; `{id}` é só o alvo |
-| Conteúdo | Texto (≤ `POST_MAX_BODY` = 1.000 caracteres, sem ser só espaços; bordas aparadas) **e/ou** um anexo (imagem ou GIF); pelo menos um |
+| Conteúdo | Texto (≤ `POST_MAX_BODY` = 1.000 caracteres, sem ser só espaços; bordas aparadas) **e/ou** anexos (até 5 imagens PNG/JPEG/WebP, ou um GIF sozinho); pelo menos um |
 | Resposta | O pai precisa existir **e** ser visível para quem responde; senão 404 igual a "não existe" |
 | Visibilidade (D6) | Dono, autor público ou aresta "eu sigo o autor" (cópia local de `follow.*`). Vale para postagem avulsa, feed, perfil, respostas, ancestrais, curtir e a imagem. Conta excluída = invisível |
 | Respostas | Cada resposta é filtrada pela visibilidade do **seu** autor |
@@ -27,10 +27,10 @@ Plano e decisões: [`../docs/plano-dominio-postagens-servico-proprio.md`](../doc
 
 | Rota | Sucesso | Erros |
 | --- | --- | --- |
-| `POST /api/postagens` (multipart: `legenda`, `imagem`, `pai`) | 201 + postagem | 422 `postagem_vazia` / `texto_muito_longo` / `imagem_invalida` / `imagem_animada` / `gif_invalido`, 413 `imagem_muito_grande`, 404 `postagem_nao_encontrada` (pai), 400 `parametro_invalido`, 429, 503 `perfil_indisponivel` / `servidor_ocupado` |
+| `POST /api/postagens` (multipart: `legenda`, `imagens` (até 5, campo repetido; o antigo `imagem` continua aceito), `pai`) | 201 + postagem | 422 `postagem_vazia` / `imagens_demais` / `gif_deve_ficar_sozinho` / `texto_muito_longo` / `imagem_invalida` / `imagem_animada` / `gif_invalido`, 413 `imagem_muito_grande`, 404 `postagem_nao_encontrada` (pai), 400 `parametro_invalido`, 429, 503 `perfil_indisponivel` / `servidor_ocupado` |
 | `GET /api/postagens/{id}` | 200 | 404 `postagem_nao_encontrada` (inexistente, invisível ou de conta excluída: igual) |
 | `DELETE /api/postagens/{id}` | 204 | 404; 403 `forbidden` (visível, mas de outra pessoa) |
-| `GET /api/postagens/feed?cursor&limite` | 200 (só raízes de quem eu sigo) | 400 `parametro_invalido` |
+| `GET /api/postagens/feed?cursor&limite` | 200 (só raízes, minhas e de quem eu sigo) | 400 `parametro_invalido` |
 | `GET /api/postagens?autor&filtro&cursor&limite` | 200 | 404 `usuario_nao_encontrado`, 403 `conta_privada`, 400 |
 | `GET /api/postagens/{id}/respostas?cursor&limite` | 200 | 404 se a postagem não é visível |
 | `GET /api/postagens/{id}/ancestrais` | 200 (até 10 níveis, da mais antiga à mais próxima, parando no primeiro invisível) | 404 |
@@ -46,19 +46,21 @@ Parâmetros: `limite` 1–100 (padrão 20); `filtro` ∈ `posts` (padrão: só r
   "id": "0192f3c4-7a1e-7b2d-9c10-5e8f4a1b2c3d",
   "legenda": "texto",
   "imagem": { "url": "/media/posts/po_….jpg", "tipo": "IMAGE", "largura": 1200, "altura": 800 },
+  "imagens": [ { "url": "/media/posts/po_….jpg", "tipo": "IMAGE", "largura": 1200, "altura": 800 } ],
   "criado_em": "2026-11-15T14:03:22.123456Z",
   "autor": { "id": "<uuid da conta>", "username": "ana", "nome": "Ana", "foto_perfil": "av_….jpg", "foto_url": "/media/avatars/av_….jpg", "privado": false },
   "pai": { "id": "…", "autor_username": "bia" },
   "curtidas": 3, "curtido": true, "respostas": 2
 }
 ```
-`legenda` e `imagem` podem ser `null` (nunca os dois); `pai` é `null` em postagem raiz e `pai.autor_username` é `null` quando
+`legenda` pode ser `null`; `imagem` (a primeira) é `null` e `imagens` é `[]` sem anexo (nunca sem legenda e sem imagem ao mesmo tempo); `imagens` traz até 5 anexos em ordem, ou um GIF sozinho; `pai` é `null` em postagem raiz e `pai.autor_username` é `null` quando
 quem pede não pode ver o pai. **Lista:** `{ "itens": [...], "proximoCursor": "…" | null }`. **Ancestrais:** `{ "itens": [...] }`.
 Erros: `{ "mensagem", "sucesso": false, "codigo" }`.
 
 ## Mídia (D8, D9, D16)
 
-- Anexo processado pela biblioteca **fora** da transação: PNG/JPEG/WebP → reduzido (lado maior ≤ 1.600 px), orientação EXIF
+- Até 5 anexos por postagem: todos são processados antes de gravar qualquer um (recusa = nada gravado) e um GIF só vale sozinho.
+- Cada anexo é processado pela biblioteca **fora** da transação: PNG/JPEG/WebP → reduzido (lado maior ≤ 1.600 px), orientação EXIF
   aplicada, re-codificado em JPEG (ou PNG com transparência), sem metadados; GIF → validado e regravado (≤ 8 MB, ≤ 1.280 px,
   ≤ 300 quadros), sem redimensionar. PNG/WebP animados → 422 `imagem_animada`.
 - Gravado no bucket `POST_MEDIA_BUCKET` com chave `po_<uuidv7>.<jpg|png|gif>`; se a transação falhar, o objeto é apagado.
@@ -83,11 +85,11 @@ Consome (idempotente por inbox; tipos desconhecidos e `aggregateVersion` antigo 
 | `post-service.profile-events` | `profile.#` | `profile.created/updated/privacy-changed/deleted.v1` → `author_snapshot` (exclusão deixa túmulo e dispara a limpeza) |
 | `post-service.follow-events` | `follow.#` | `follow.created.v1` / `follow.removed.v1` → `follow_edge` (só vale a aresta mais nova do par; `removed` deixa túmulo em `follow_removed` por 7 dias). Solicitações são ignoradas |
 
-## Tabelas (`V1__post.sql`)
+## Tabelas (`V1__post.sql`, `V3__post_images.sql`)
 
 `author_snapshot` (cópia pública dos perfis), `follow_edge` e `follow_removed` (cópia das arestas e túmulos), `post`
 (UUIDv7, `parent_id` com `on delete cascade`, `body ≤ 1000`, `image_key/kind/width/height`, `likes_count`, `replies_count`),
-`post_like` (PK `(post_id, user_id)`), `outbox_event`, `processed_message`.
+`post_image` (até 5 imagens por postagem, com `position`; a 1ª também fica em `post.image_*`), `post_like` (PK `(post_id, user_id)`), `outbox_event`, `processed_message`.
 
 ## Rotinas agendadas
 
@@ -116,7 +118,7 @@ Consome (idempotente por inbox; tipos desconhecidos e `aggregateVersion` antigo 
 | `POST_MAINTENANCE_ENABLED` / `POST_MAINTENANCE_INTERVAL` / `POST_TOMBSTONE_RETENTION` / `POST_PURGE_BATCH` | `true` / `PT1H` / `P7D` / `200` | Rotinas de manutenção |
 | `POST_RECONCILER_ENABLED` / `POST_RECONCILER_INTERVAL` / `POST_RECONCILER_BATCH` | `true` / `PT1H` / `500` | Reconciliador de contadores |
 
-Multipart: `max-file-size` 8 MB / `max-request-size` 9 MB (os limites finos ficam na biblioteca de mídia).
+Multipart: `max-file-size` 8 MB / `max-request-size` 30 MB, para até 5 imagens de 5 MB (os limites finos ficam na biblioteca de mídia).
 
 ## Rodando e testando
 

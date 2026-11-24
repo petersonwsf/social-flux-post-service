@@ -6,6 +6,7 @@ import com.socialflux.media.ProcessedMedia;
 import com.socialflux.media.storage.MediaStorage;
 import com.socialflux.post.config.PostProperties;
 import com.socialflux.post.domain.PostRepository;
+import com.socialflux.post.web.ApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -14,6 +15,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
@@ -30,6 +32,8 @@ public class PostMediaService {
 
     private static final Logger log = LoggerFactory.getLogger(PostMediaService.class);
     private static final int SWEEP_BATCH = 500;
+    /** Máximo de imagens por postagem. */
+    public static final int MAX_IMAGES = 5;
 
     /** Anexo já processado e gravado. */
     public record Stored(String key, ProcessedMedia media) {
@@ -62,6 +66,32 @@ public class PostMediaService {
         String key = MediaKeys.newKey(MediaKeys.POST_PREFIX, media.extension(), clock);
         storage.put(bucket, key, media.bytes(), media.contentType());
         return new Stored(key, media);
+    }
+
+    /**
+     * Processa TODOS os anexos antes de gravar qualquer um (uma recusa não deixa objeto para trás) e confere as regras do
+     * conjunto: até {@code MAX_IMAGES} e GIF só sozinho. Se gravar um falhar, apaga os já gravados.
+     */
+    public List<Stored> storeAll(List<byte[]> uploads) {
+        if (uploads.size() > MAX_IMAGES) {
+            throw ApiException.unprocessable("imagens_demais", "Envie no máximo " + MAX_IMAGES + " imagens por postagem");
+        }
+        List<ProcessedMedia> processed = uploads.stream().map(processor::process).toList();
+        if (processed.size() > 1 && processed.stream().anyMatch(m -> m.kind() == ProcessedMedia.Kind.GIF)) {
+            throw ApiException.unprocessable("gif_deve_ficar_sozinho", "Um GIF não pode ser enviado junto com outras imagens");
+        }
+        List<Stored> stored = new ArrayList<>();
+        try {
+            for (ProcessedMedia media : processed) {
+                String key = MediaKeys.newKey(MediaKeys.POST_PREFIX, media.extension(), clock);
+                storage.put(bucket, key, media.bytes(), media.contentType());
+                stored.add(new Stored(key, media));
+            }
+        } catch (RuntimeException e) {
+            stored.forEach(s -> deleteQuietly(s.key()));
+            throw e;
+        }
+        return stored;
     }
 
     /** Compensação: apaga um objeto que acabou sem postagem (a varredura de órfãos cobre se isto falhar). */

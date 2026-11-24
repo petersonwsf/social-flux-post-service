@@ -33,7 +33,7 @@ post_service/
     │   └── events/               filas, listeners e tratadores de eventos consumidos
     ├── main/resources/
     │   ├── application.yml       datasource, multipart (8/9 MB), Tomcat (swallow 16 MB), RabbitMQ, socialflux.events/media e bloco `post.*`
-    │   └── db/migration/        V1__post.sql e V2__remove_legacy_id.sql (remove `author_snapshot.legacy_id`)
+    │   └── db/migration/        V1__post.sql, V2__remove_legacy_id.sql (remove `author_snapshot.legacy_id`) e V3__post_images.sql (`post_image`: até 5 imagens por postagem)
     └── test/java/com/socialflux/post/
 ```
 
@@ -65,7 +65,7 @@ post_service/
 | --- | --- |
 | `PostController.java` | `/api/postagens`: criar (multipart), ler, excluir, feed, lista do autor, respostas, ancestrais, curtir/descurtir; quem age vem do token; id malformado = 404 |
 | `MediaController.java` | `GET /media/posts/{chave}`: bytes com tipo fixo, `nosniff`, cache privado imutável, `ETag`/304 |
-| `Dtos.java` | Corpos: `Post` (com `Author`, `Image`, `Parent`), `PageView`, `AncestorsView`, `LikeView` |
+| `Dtos.java` | Corpos: `Post` (com `Author`, `Image` e a lista `imagens`, `Parent`), `PageView`, `AncestorsView`, `LikeView` |
 | `MediaErrors.java` | Tradução de `MediaException` para `imagem_invalida`, `imagem_animada`, `gif_invalido`, `imagem_muito_grande`, `servidor_ocupado` |
 | `ApiError.java` / `ApiException.java` | Corpo `{ mensagem, sucesso, codigo }` e erro de negócio com status (inclui 404 uniforme de postagem e 429 com `Retry-After`) |
 | `GlobalExceptionHandler.java` | Converte exceções (negócio, mídia, upload grande, parâmetros, métodos) no corpo padrão; 500 genérico com log |
@@ -74,10 +74,10 @@ post_service/
 
 | Arquivo | O que representa |
 | --- | --- |
-| `PostService.java` | Regras: criar (valida, processa o anexo fora da transação, transação curta com o pai travado, compensação do objeto), ler, feed, lista do autor (403 `conta_privada`), respostas, ancestrais, excluir (trava pai → postagem; 403/404) |
+| `PostService.java` | Regras: criar (valida, processa o anexo fora da transação, transação curta com o pai travado, compensação do objeto), ler, feed (minhas postagens e de quem sigo), lista do autor (403 `conta_privada`), respostas, ancestrais, excluir (trava pai → postagem; 403/404) |
 | `LikeService.java` | Curtir/descurtir idempotentes com a postagem travada e limite por hora |
 | `PostWriter.java` | Mecanismos na transação do chamador (`MANDATORY`): inserir + contador do pai + `post.created.v1`; excluir subárvore + contador + `post.deleted.v1` por nó + remoção de imagens após o commit; curtir/descurtir + contador + evento |
-| `PostMediaService.java` | Processa e grava o anexo, compensação, remoção após o commit, entrega com checagem de visibilidade e 304, varredura de órfãos |
+| `PostMediaService.java` | Processa e grava os anexos (até 5; GIF só sozinho), compensação, remoção após o commit, entrega com checagem de visibilidade e 304, varredura de órfãos |
 | `ProfileSyncService.java` | Aplica `profile.*` em `author_snapshot` (versão, túmulo); exclusão marca `DELETED`, apaga arestas e agenda o `AccountPurger` |
 | `FollowSyncService.java` | Aplica `follow.created/removed.v1` em `follow_edge`/`follow_removed` (fora de ordem tolerado) |
 | `AccountPurger.java` | Limpeza de conta excluída em transações curtas `REQUIRES_NEW`: postagens (subárvores), curtidas dadas, arestas |
@@ -90,7 +90,8 @@ post_service/
 | Arquivo | O que representa |
 | --- | --- |
 | `PostRepository.java` | Consultas com o fragmento de visibilidade em SQL: postagem visível, feed, lista do autor (filtros), respostas, ancestrais (CTE recursiva), mídia por chave; escrita: travas (`for update of p`), inserção, contadores, subárvore travada pai → filho, exclusão; curtidas; órfãos; reconciliação |
-| `PostView.java` | Postagem como o viewer a vê (autor, contadores, "curti", resumo do pai) |
+| `PostView.java` | Postagem como o viewer a vê (autor, contadores, "curti", resumo do pai, capa e `images`) |
+| `PostImage.java` | Uma imagem da postagem (chave, tipo, dimensões, posição 0–4) |
 | `AuthorRepository.java` | `author_snapshot`: leitura (com `for share`/`for update`), "segue?", inserção/atualização, contas excluídas com sobras |
 | `AuthorSnapshot.java` | Cópia pública do perfil de um autor (`ACTIVE`/`DELETED`) |
 | `FollowEdgeRepository.java` | `follow_edge` (upsert pela aresta mais nova, remoção só do mesmo vínculo) e `follow_removed` (túmulos, poda) |

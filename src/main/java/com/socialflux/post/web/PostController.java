@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -45,14 +47,30 @@ public class PostController {
         this.likes = likes;
     }
 
-    /** Cria postagem ou resposta (multipart: {@code legenda}, {@code imagem}, {@code pai}). */
+    /**
+     * Cria postagem ou resposta (multipart: {@code legenda}, {@code imagens} (até 5, repetido), {@code pai}). O campo
+     * antigo {@code imagem} (uma só) continua aceito e vale como a primeira.
+     */
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<Post> create(@RequestParam(name = "legenda", required = false) String caption,
                                 @RequestPart(name = "imagem", required = false) MultipartFile image,
+                                @RequestPart(name = "imagens", required = false) List<MultipartFile> images,
                                 @RequestParam(name = "pai", required = false) String parent,
                                 @AuthenticationPrincipal Jwt jwt) throws IOException {
-        byte[] bytes = image == null || image.isEmpty() ? null : image.getBytes();
-        return ResponseEntity.status(HttpStatus.CREATED).body(Post.of(posts.create(actor(jwt), caption, bytes, parent)));
+        List<byte[]> uploads = new ArrayList<>();
+        List<MultipartFile> files = new ArrayList<>();
+        if (image != null) {
+            files.add(image);
+        }
+        if (images != null) {
+            files.addAll(images);
+        }
+        for (MultipartFile file : files) {
+            if (!file.isEmpty()) {
+                uploads.add(file.getBytes());
+            }
+        }
+        return ResponseEntity.status(HttpStatus.CREATED).body(Post.of(posts.create(actor(jwt), caption, uploads, parent)));
     }
 
     @GetMapping("/feed")

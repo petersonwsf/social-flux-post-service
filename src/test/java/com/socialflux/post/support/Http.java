@@ -98,6 +98,27 @@ public class Http {
         return execute(builder.method(method, HttpRequest.BodyPublishers.ofByteArray(out.toByteArray())).build());
     }
 
+    /** Requisição multipart com vários arquivos no MESMO campo (ex.: imagens) e campos de texto extras. */
+    public Response multipartFiles(String method, String path, String token, String fileField, List<byte[]> files,
+                                   Map<String, String> fields) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        fields.forEach((name, value) -> write(out, "--" + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"" + name
+                + "\"\r\n\r\n" + value + "\r\n"));
+        for (int i = 0; i < files.size(); i++) {
+            write(out, "--" + BOUNDARY + "\r\nContent-Disposition: form-data; name=\"" + fileField + "\"; filename=\"anexo"
+                    + i + ".bin\"\r\nContent-Type: application/octet-stream\r\n\r\n");
+            out.writeBytes(files.get(i));
+            write(out, "\r\n");
+        }
+        write(out, "--" + BOUNDARY + "--\r\n");
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Content-Type", "multipart/form-data; boundary=" + BOUNDARY);
+        if (token != null) {
+            builder.header("Authorization", "Bearer " + token);
+        }
+        return execute(builder.method(method, HttpRequest.BodyPublishers.ofByteArray(out.toByteArray())).build());
+    }
+
     private Response execute(HttpRequest request) {
         try {
             HttpResponse<byte[]> raw = client.send(request, HttpResponse.BodyHandlers.ofByteArray());

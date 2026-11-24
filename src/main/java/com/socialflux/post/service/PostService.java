@@ -69,10 +69,10 @@ public class PostService {
      * Cria postagem ou resposta (C): valida → processa o anexo FORA da transação → grava o objeto → transação curta
      * (pai travado e visível, linha nova, contador do pai, evento) → se a transação falhar, apaga o objeto (compensação).
      */
-    public PostView create(UUID author, String caption, byte[] image, String parentRaw) {
+    public PostView create(UUID author, String caption, List<byte[]> images, String parentRaw) {
         rateLimiter.hit("post:" + author, limits.postsPerHour(), Duration.ofHours(1));
         String body = normalizeBody(caption);
-        boolean hasImage = image != null && image.length > 0;
+        boolean hasImage = !images.isEmpty();
         UUID parentId = parseOptionalUuid(parentRaw);
         if (body == null && !hasImage) {
             throw ApiException.unprocessable("postagem_vazia", "Escreva um texto ou anexe uma imagem");
@@ -82,7 +82,7 @@ public class PostService {
             throw ApiException.postNotFound();   // checagem barata antes de processar a imagem; a definitiva é na transação
         }
 
-        PostMediaService.Stored stored = hasImage ? media.store(image) : null;
+        List<PostMediaService.Stored> stored = hasImage ? media.storeAll(images) : List.of();
         UUID id = EventIds.v7(clock);
         try {
             tx.executeWithoutResult(status -> {
@@ -94,13 +94,10 @@ public class PostService {
                             .orElseThrow(ApiException::postNotFound);
                     parentAuthor = parent.authorId();
                 }
-                writer.create(id, author, parentId, parentAuthor, body, stored == null ? null : stored.key(),
-                        stored == null ? null : stored.media());
+                writer.create(id, author, parentId, parentAuthor, body, stored);
             });
         } catch (RuntimeException e) {
-            if (stored != null) {
-                media.deleteQuietly(stored.key());
-            }
+            stored.forEach(item -> media.deleteQuietly(item.key()));
             throw e;
         }
         return posts.findVisible(author, id).orElseThrow(ApiException::postNotFound);
