@@ -11,7 +11,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ModerationPolicyTest {
 
     private final ModerationPolicy policy =
-            new ModerationPolicy(new PostProperties.Thresholds(0.80, 0.80, 0.50, 0.70));
+            new ModerationPolicy(new PostProperties.Thresholds(0.80, 0.80, 0.65, 0.50, 0.70));
 
     @Test
     void cleanTextIsAllowed() {
@@ -34,6 +34,21 @@ class ModerationPolicyTest {
     @Test
     void hateJustBelowTheLimitPasses() {
         assertThat(policy.evaluateText(Map.of("hate", 0.79)).allowed()).isTrue();
+    }
+
+    @Test
+    void deathWishAtSomeoneIsForbidden() {
+        // "fulano tem que morrer": medido na API com harassment/threatening 0,74 e violence 0,77
+        Verdict verdict = policy.evaluateText(Map.of("harassment/threatening", 0.74, "violence", 0.77, "harassment", 0.65));
+        assertThat(verdict.kind()).isEqualTo(Verdict.Kind.FORBIDDEN);
+        assertThat(verdict.category()).isEqualTo("harassment/threatening");
+    }
+
+    @Test
+    void jokingViolenceIsAllowed() {
+        // "eu mato quem mexer no meu lanche kkk": violence 0,79 mas harassment/threatening só 0,29
+        Verdict verdict = policy.evaluateText(Map.of("violence", 0.79, "harassment/threatening", 0.29, "harassment", 0.20));
+        assertThat(verdict.allowed()).isTrue();
     }
 
     @Test

@@ -20,7 +20,8 @@ import java.util.Map;
 public class OpenAiContentModerator implements ContentModerator {
 
     private static final String[] TEXT_CATEGORIES = {
-            ModerationPolicy.HATE, ModerationPolicy.HATE_THREATENING, ModerationPolicy.SELF_HARM,
+            ModerationPolicy.HATE, ModerationPolicy.HATE_THREATENING, ModerationPolicy.HARASSMENT_THREATENING,
+            ModerationPolicy.SELF_HARM,
             ModerationPolicy.SELF_HARM_INTENT, ModerationPolicy.SELF_HARM_INSTRUCTIONS, ModerationPolicy.VIOLENCE_GRAPHIC};
 
     private static final JsonMapper MAPPER = JsonMapper.builder().build();

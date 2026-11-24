@@ -17,7 +17,7 @@ class ContentGuardTest {
 
     private static PostProperties.Moderation properties(boolean failClosedText) {
         return new PostProperties.Moderation(true, "chave", "http://localhost", "modelo", Duration.ofSeconds(1),
-                failClosedText, new PostProperties.Thresholds(0.8, 0.8, 0.5, 0.7));
+                failClosedText, new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.5, 0.7));
     }
 
     private static ContentGuard guard(boolean failClosedText, ContentModerator moderator) {

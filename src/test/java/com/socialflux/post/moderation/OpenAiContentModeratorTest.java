@@ -50,7 +50,7 @@ class OpenAiContentModeratorTest {
     }
 
     private OpenAiContentModerator moderator(Duration timeout) {
-        PostProperties.Thresholds thresholds = new PostProperties.Thresholds(0.8, 0.8, 0.5, 0.7);
+        PostProperties.Thresholds thresholds = new PostProperties.Thresholds(0.8, 0.8, 0.65, 0.5, 0.7);
         PostProperties.Moderation properties = new PostProperties.Moderation(true, "sk-teste",
                 "http://127.0.0.1:" + server.getAddress().getPort(), "omni-moderation-latest", timeout, false, thresholds);
         return new OpenAiContentModerator(properties, new ModerationPolicy(thresholds));
@@ -87,6 +87,14 @@ class OpenAiContentModeratorTest {
     void selfHarmIntentScoreIsSelfHarm() {
         responseBody = scores("{\"self-harm/intent\":0.88}");
         assertThat(moderator(Duration.ofSeconds(2)).checkText("x").kind()).isEqualTo(Verdict.Kind.SELF_HARM);
+    }
+
+    @Test
+    void threateningHarassmentScoreIsForbidden() {
+        responseBody = scores("{\"harassment/threatening\":0.74,\"violence\":0.77}");
+        Verdict verdict = moderator(Duration.ofSeconds(2)).checkText("x");
+        assertThat(verdict.kind()).isEqualTo(Verdict.Kind.FORBIDDEN);
+        assertThat(verdict.category()).isEqualTo("harassment/threatening");
     }
 
     @Test

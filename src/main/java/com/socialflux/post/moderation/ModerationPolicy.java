@@ -5,13 +5,15 @@ import com.socialflux.post.config.PostProperties;
 import java.util.Map;
 
 /**
- * Regras puras: recebe os scores por categoria e decide. Ofensa comum ({@code harassment}), {@code violence} e
- * {@code illicit} não bloqueiam: só ódio pesado, violência gráfica e automutilação.
+ * Regras puras: recebe os scores por categoria e decide. Ofensa comum ({@code harassment}), {@code violence} (pega
+ * brincadeira e notícia) e {@code illicit} não bloqueiam: só ódio, ameaça ou desejo de morte a alguém
+ * ({@code harassment/threatening}), violência gráfica e automutilação.
  */
 public class ModerationPolicy {
 
     public static final String HATE = "hate";
     public static final String HATE_THREATENING = "hate/threatening";
+    public static final String HARASSMENT_THREATENING = "harassment/threatening";
     public static final String SELF_HARM = "self-harm";
     public static final String SELF_HARM_INTENT = "self-harm/intent";
     public static final String SELF_HARM_INSTRUCTIONS = "self-harm/instructions";
@@ -32,6 +34,9 @@ public class ModerationPolicy {
         }
         if (reaches(scores, HATE_THREATENING, thresholds.hateThreatening())) {
             return new Verdict(Verdict.Kind.FORBIDDEN, HATE_THREATENING);
+        }
+        if (reaches(scores, HARASSMENT_THREATENING, thresholds.harassmentThreatening())) {
+            return new Verdict(Verdict.Kind.FORBIDDEN, HARASSMENT_THREATENING);
         }
         if (reaches(scores, HATE, thresholds.hate())) {
             return new Verdict(Verdict.Kind.FORBIDDEN, HATE);

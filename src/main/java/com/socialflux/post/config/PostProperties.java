@@ -56,6 +56,7 @@ public record PostProperties(
     public record Thresholds(
             @DecimalMin("0") @DecimalMax("1") double hate,
             @DecimalMin("0") @DecimalMax("1") double hateThreatening,
+            @DecimalMin("0") @DecimalMax("1") double harassmentThreatening,
             @DecimalMin("0") @DecimalMax("1") double selfHarm,
             @DecimalMin("0") @DecimalMax("1") double violenceGraphic) {
     }

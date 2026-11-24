@@ -95,8 +95,11 @@ post:
     # Texto: se o provedor falhar, deixa passar (false) ou recusa com 503 (true).
     fail-closed-text: ${POST_MODERATION_FAIL_CLOSED_TEXT:false}
     thresholds:
-      hate: ${POST_MODERATION_HATE:0.80}
-      hate-threatening: ${POST_MODERATION_HATE_THREATENING:0.80}
+      # Calibrados com frases em português: ofensa comum fica com hate <= 0,18; ódio de verdade, de 0,35 para cima.
+      hate: ${POST_MODERATION_HATE:0.30}
+      hate-threatening: ${POST_MODERATION_HATE_THREATENING:0.30}
+      # Ameaça ou desejo de morte a alguém ("fulano tem que morrer"); brincadeira ("eu mato quem...") fica abaixo.
+      harassment-threatening: ${POST_MODERATION_HARASSMENT_THREATENING:0.65}
       self-harm: ${POST_MODERATION_SELF_HARM:0.50}
       violence-graphic: ${POST_MODERATION_VIOLENCE_GRAPHIC:0.70}
   maintenance:
