@@ -28,7 +28,7 @@ public final class Dtos {
         }
     }
 
-    /** Anexo: URL autenticada, tipo e dimensões (o frontend reserva o espaço antes de carregar). */
+    /** Anexo: URL autenticada, tipo e dimensões (o frontend reserva o espaço antes de carregar). {@code imagens} traz todos em ordem; {@code imagem} é o primeiro. */
     public record Image(String url, String tipo, Integer largura, Integer altura) {
     }
 
@@ -40,6 +40,7 @@ public final class Dtos {
             String id,
             String legenda,
             Image imagem,
+            List<Image> imagens,
             String criado_em,
             Author autor,
             Parent pai,
@@ -50,8 +51,10 @@ public final class Dtos {
         public static Post of(PostView p) {
             Image image = p.imageKey() == null ? null
                     : new Image("/media/posts/" + p.imageKey(), p.imageKind(), p.imageWidth(), p.imageHeight());
+            List<Image> images = p.images().stream()
+                    .map(i -> new Image("/media/posts/" + i.key(), i.kind(), i.width(), i.height())).toList();
             Parent parent = p.parentId() == null ? null : new Parent(p.parentId().toString(), p.parentUsername());
-            return new Post(p.id().toString(), p.body(), image, p.createdAt().toInstant().toString(), Author.of(p.author()),
+            return new Post(p.id().toString(), p.body(), image, images, p.createdAt().toInstant().toString(), Author.of(p.author()),
                     parent, p.likes(), p.liked(), p.replies());
         }
     }

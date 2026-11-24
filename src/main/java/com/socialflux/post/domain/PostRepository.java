@@ -79,6 +79,7 @@ public class PostRepository {
             rs.getString("image_kind"),
             rs.getObject("image_width", Integer.class),
             rs.getObject("image_height", Integer.class),
+            List.of(),
             rs.getInt("likes_count"),
             rs.getInt("replies_count"),
             rs.getBoolean("liked"),
@@ -94,14 +95,17 @@ public class PostRepository {
 
     public Optional<PostView> findVisible(UUID viewer, UUID id) {
         return jdbc.sql("select " + VIEW_COLUMNS + VIEW_FROM + " where p.id = :id and " + visible("a", "fe"))
-                .param("viewer", viewer).param("id", id).query(VIEW).optional();
+                .param("viewer", viewer).param("id", id).query(VIEW).optional()
+                .map(view -> withImages(List.of(view)).get(0));
     }
 
-    /** Feed: postagens (não respostas) de quem {@code viewer} segue, mais novas primeiro. */
+    /** Feed: postagens (não respostas) do próprio {@code viewer} e de quem ele segue, mais novas primeiro. */
     public List<PostView> feed(UUID viewer, Cursor cursor, int limit) {
         String sql = "select " + VIEW_COLUMNS + VIEW_FROM
-                + " join follow_edge e on e.followee_id = p.author_id and e.follower_id = :viewer"
-                + " where p.parent_id is null and a.status = 'ACTIVE'" + (cursor == null ? "" : AFTER_CURSOR) + ORDER_PAGE;
+                + " where p.parent_id is null and a.status = 'ACTIVE'"
+                + " and (p.author_id = :viewer or exists (select 1 from follow_edge e"
+                + " where e.followee_id = p.author_id and e.follower_id = :viewer))"
+                + (cursor == null ? "" : AFTER_CURSOR) + ORDER_PAGE;
         return page(jdbc.sql(sql).param("viewer", viewer), cursor, limit);
     }
 
@@ -136,14 +140,17 @@ public class PostRepository {
                 """.formatted(VIEW_COLUMNS, visible("a", "fe"))
                 + VIEW_FROM.replace("from post p", "from chain c join post p on p.id = c.id")
                 + " where c.depth > 0 order by c.depth";
-        return jdbc.sql(sql).param("viewer", viewer).param("id", id).param("max", maxDepth)
+        List<Ancestor> chain = jdbc.sql(sql).param("viewer", viewer).param("id", id).param("max", maxDepth)
                 .query((rs, n) -> new Ancestor(VIEW.mapRow(rs, n), rs.getInt("chain_depth"), rs.getBoolean("is_visible")))
                 .list();
+        List<PostView> withImages = withImages(chain.stream().map(Ancestor::post).toList());
+        return java.util.stream.IntStream.range(0, chain.size())
+                .mapToObj(i -> new Ancestor(withImages.get(i), chain.get(i).depth(), chain.get(i).visible())).toList();
     }
 
     public Optional<MediaRef> findMedia(UUID viewer, String imageKey) {
-        return jdbc.sql("select p.image_key, p.image_kind, " + visible("a", "fe") + " as is_visible from post p "
-                        + "join author_snapshot a on a.user_id = p.author_id where p.image_key = :key")
+        return jdbc.sql("select i.image_key, i.image_kind, " + visible("a", "fe") + " as is_visible from post_image i "
+                        + "join post p on p.id = i.post_id join author_snapshot a on a.user_id = p.author_id where i.image_key = :key")
                 .param("viewer", viewer).param("key", imageKey)
                 .query((rs, n) -> new MediaRef(rs.getString("image_key"), rs.getString("image_kind"),
                         rs.getBoolean("is_visible")))
@@ -154,7 +161,7 @@ public class PostRepository {
         if (cursor != null) {
             spec = spec.param("cursorAt", cursor.at()).param("cursorId", cursor.id());
         }
-        return spec.param("limit", limit).query(VIEW).list();
+        return withImages(spec.param("limit", limit).query(VIEW).list());
     }
 
     // ------------------------------------------------------------------ escrita
@@ -215,6 +222,47 @@ public class PostRepository {
                 .list();
     }
 
+    /** Grava as imagens da postagem em ordem (a 1ª é a capa, também copiada para {@code post.image_*}). */
+    public void insertImages(UUID postId, List<PostImage> images) {
+        for (PostImage image : images) {
+            jdbc.sql("""
+                            insert into post_image (post_id, position, image_key, image_kind, image_width, image_height)
+                            values (:post, :position, :key, :kind, :width, :height)""")
+                    .param("post", postId).param("position", image.position()).param("key", image.key())
+                    .param("kind", image.kind()).param("width", image.width()).param("height", image.height()).update();
+        }
+    }
+
+    /** Chaves de TODAS as imagens destas postagens (para apagar os objetos depois da exclusão). */
+    public List<String> imageKeysOf(List<UUID> postIds) {
+        if (postIds.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("select image_key from post_image where post_id = any(:ids)")
+                .param("ids", postIds.toArray(new UUID[0])).query(String.class).list();
+    }
+
+    /** Preenche {@code images} (todas as imagens, em ordem) das postagens, numa só consulta. */
+    private List<PostView> withImages(List<PostView> views) {
+        if (views.isEmpty()) {
+            return views;
+        }
+        java.util.Map<UUID, List<PostImage>> byPost = new java.util.HashMap<>();
+        jdbc.sql("select post_id, position, image_key, image_kind, image_width, image_height from post_image "
+                        + "where post_id = any(:ids) order by post_id, position")
+                .param("ids", views.stream().map(PostView::id).distinct().toArray(UUID[]::new))
+                .query((rs, n) -> {
+                    byPost.computeIfAbsent(rs.getObject("post_id", UUID.class), k -> new java.util.ArrayList<>())
+                            .add(new PostImage(rs.getString("image_key"), rs.getString("image_kind"),
+                                    rs.getObject("image_width", Integer.class), rs.getObject("image_height", Integer.class),
+                                    rs.getInt("position")));
+                    return n;
+                }).list();
+        return views.stream().map(v -> new PostView(v.id(), v.author(), v.parentId(), v.parentUsername(), v.body(),
+                v.imageKey(), v.imageKind(), v.imageWidth(), v.imageHeight(), byPost.getOrDefault(v.id(), List.of()),
+                v.likes(), v.replies(), v.liked(), v.createdAt())).toList();
+    }
+
     /** Apaga a postagem; a FK {@code on delete cascade} leva respostas e curtidas junto. */
     public void delete(UUID id) {
         jdbc.sql("delete from post where id = :id").param("id", id).update();
@@ -264,7 +312,7 @@ public class PostRepository {
         if (keys.isEmpty()) {
             return List.of();
         }
-        return jdbc.sql("select image_key from post where image_key = any(:keys)")
+        return jdbc.sql("select image_key from post_image where image_key = any(:keys)")
                 .param("keys", keys.toArray(new String[0])).query(String.class).list();
     }
 

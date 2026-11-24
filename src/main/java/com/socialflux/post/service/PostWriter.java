@@ -2,6 +2,7 @@ package com.socialflux.post.service;
 
 import com.socialflux.events.Outbox;
 import com.socialflux.media.ProcessedMedia;
+import com.socialflux.post.domain.PostImage;
 import com.socialflux.post.domain.PostRepository;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -12,6 +13,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,12 +50,19 @@ public class PostWriter {
     }
 
     /** Grava a postagem (ou resposta, com o pai já travado), soma 1 às respostas do pai e grava {@code post.created.v1}. */
-    public void create(UUID id, UUID authorId, UUID parentId, UUID parentAuthorId, String body, String imageKey,
-                       ProcessedMedia image) {
+    public void create(UUID id, UUID authorId, UUID parentId, UUID parentAuthorId, String body,
+                       List<PostMediaService.Stored> images) {
         OffsetDateTime at = now();
-        String kind = image == null ? null : image.kind().name();
-        posts.insert(id, authorId, parentId, body, imageKey, kind, image == null ? null : image.width(),
-                image == null ? null : image.height(), at);
+        PostMediaService.Stored cover = images.isEmpty() ? null : images.get(0);
+        String kind = cover == null ? null : cover.media().kind().name();
+        posts.insert(id, authorId, parentId, body, cover == null ? null : cover.key(), kind,
+                cover == null ? null : cover.media().width(), cover == null ? null : cover.media().height(), at);
+        List<PostImage> rows = new ArrayList<>();
+        for (int i = 0; i < images.size(); i++) {
+            ProcessedMedia m = images.get(i).media();
+            rows.add(new PostImage(images.get(i).key(), m.kind().name(), m.width(), m.height(), i));
+        }
+        posts.insertImages(id, rows);
         if (parentId != null) {
             posts.addReplies(parentId, 1);
         }
@@ -78,6 +87,7 @@ public class PostWriter {
         if (nodes.isEmpty()) {
             return 0;
         }
+        List<String> keys = posts.imageKeysOf(nodes.stream().map(PostRepository.Node::id).toList());
         posts.delete(id);
         if (parentId != null) {
             posts.addReplies(parentId, -1);
@@ -88,7 +98,7 @@ public class PostWriter {
             data.put("authorId", node.authorId().toString());
             outbox.add(POST_DELETED, node.id(), 1, data);
         }
-        media.deleteAfterCommit(nodes.stream().map(PostRepository.Node::imageKey).filter(k -> k != null).toList());
+        media.deleteAfterCommit(keys);
         return nodes.size();
     }
 
