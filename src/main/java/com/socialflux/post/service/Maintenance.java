@@ -3,6 +3,7 @@ package com.socialflux.post.service;
 import com.socialflux.post.config.PostProperties;
 import com.socialflux.post.domain.AuthorRepository;
 import com.socialflux.post.domain.FollowEdgeRepository;
+import com.socialflux.events.logging.CorrelationId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -51,9 +52,11 @@ public class Maintenance {
         if (!properties.enabled()) {
             return;
         }
-        run("poda de túmulos", this::pruneTombstones);
-        run("varredura de mídia órfã", media::sweepOrphans);
-        run("limpeza de contas excluídas", this::purgeDeletedAccounts);
+        try (CorrelationId.Scope ignored = CorrelationId.open(null)) {   // cada rodada ganha o próprio id nos logs
+            run("poda de túmulos", this::pruneTombstones);
+            run("varredura de mídia órfã", media::sweepOrphans);
+            run("limpeza de contas excluídas", this::purgeDeletedAccounts);
+        }
     }
 
     public int pruneTombstones() {
@@ -71,7 +74,10 @@ public class Maintenance {
 
     private static void run(String name, java.util.function.IntSupplier task) {
         try {
-            task.getAsInt();
+            int removed = task.getAsInt();
+            if (removed > 0) {
+                log.info("Rotina '{}' removeu {} registro(s)", name, removed);
+            }
         } catch (RuntimeException e) {
             log.warn("Rotina de manutenção '{}' falhou (tentará de novo na próxima rodada): {}", name, e.toString());
         }
