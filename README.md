@@ -100,6 +100,12 @@ Consome (idempotente por inbox; tipos desconhecidos e `aggregateVersion` antigo 
 | `CounterReconciler` | `POST_RECONCILER_INTERVAL` (1 h; 1ª após 5 min) | recalcula `likes_count`/`replies_count` por `count(*)` (até `POST_RECONCILER_BATCH` por rodada) e corrige, registrando quantos divergiam |
 | Relay/expurgo do outbox | biblioteca de eventos | publica os pendentes e expurga os publicados após 7 dias |
 
+## Logs e rastreabilidade
+
+- Toda requisição carrega o `X-Correlation-Id` (o gateway cria; o `CorrelationIdFilter` de `libs/socialflux-events` o põe no MDC e o devolve na resposta) e gera uma linha de acesso (`Requisição GET /caminho respondeu 200 em 12 ms`, sem query string; health checks e `/internal/auth/verify` ficam em DEBUG). O mesmo id vai nos eventos publicados e é retomado por quem os consome, então um fluxo inteiro (ex.: cadastro → perfil → notificações) se acompanha pelo Loki/Grafana procurando o `correlationId`.
+- Em container o log sai em **JSON** (`LOGGING_STRUCTURED_FORMAT_CONSOLE=logstash` no Dockerfile; campos `level`, `message`, `correlationId`, `service`...); no host, texto com o id entre colchetes. `LOG_LEVEL` (padrão `INFO`) controla o código do projeto (`com.socialflux`); `DEBUG` mostra também o que é de alto volume. Nunca vão para o log senhas, tokens, e-mail, telefone, IP ou corpo de requisição.
+- O que este serviço registra: postagem criada e excluída (curtidas em DEBUG), recusas e falhas da moderação, varredura de mídia órfã, rotinas agendadas (cada rodada com o próprio id) e os eventos consumidos/publicados.
+
 ## Configuração (variáveis de ambiente)
 
 | Variável | Padrão | Descrição |

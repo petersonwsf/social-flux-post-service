@@ -29,11 +29,11 @@ public class EventHandlers {
 
     public void handleProfile(String json) {
         EventEnvelope event = EventEnvelope.parse(mapper, json);
-        inbox.once(event.id(), () -> profiles.apply(event));
+        inbox.once(event, () -> profiles.apply(event));
     }
 
     public void handleFollow(String json) {
         EventEnvelope event = EventEnvelope.parse(mapper, json);
-        inbox.once(event.id(), () -> follows.apply(event));
+        inbox.once(event, () -> follows.apply(event));
     }
 }

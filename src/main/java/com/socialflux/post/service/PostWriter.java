@@ -1,5 +1,7 @@
 package com.socialflux.post.service;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.socialflux.events.Outbox;
 import com.socialflux.media.ProcessedMedia;
 import com.socialflux.post.domain.PostImage;
@@ -29,6 +31,8 @@ import java.util.UUID;
 @Component
 @Transactional(propagation = Propagation.MANDATORY)
 public class PostWriter {
+
+    private static final Logger log = LoggerFactory.getLogger(PostWriter.class);
 
     public static final String POST_CREATED = "post.created.v1";
     public static final String POST_DELETED = "post.deleted.v1";
@@ -75,6 +79,7 @@ public class PostWriter {
         data.put("excerpt", excerpt(body));
         data.put("createdAt", at.toInstant().toString());
         outbox.add(POST_CREATED, id, 1, data);
+        log.info("Postagem {} criada (autor {}, resposta a {}, {} imagem(ns))", id, authorId, parentId, images.size());
     }
 
     /**
@@ -99,6 +104,7 @@ public class PostWriter {
             outbox.add(POST_DELETED, node.id(), 1, data);
         }
         media.deleteAfterCommit(keys);
+        log.info("Postagem {} excluída ({} item(ns) na subárvore, {} imagem(ns))", id, nodes.size(), keys.size());
         return nodes.size();
     }
 
@@ -109,6 +115,7 @@ public class PostWriter {
         }
         posts.addLikes(postId, 1);
         outbox.add(POST_LIKED, postId, 1, likeData(postId, postAuthorId, userId));
+        log.debug("Usuário {} curtiu a postagem {}", userId, postId);
         return true;
     }
 
@@ -119,6 +126,7 @@ public class PostWriter {
         }
         posts.addLikes(postId, -1);
         outbox.add(POST_UNLIKED, postId, 1, likeData(postId, postAuthorId, userId));
+        log.debug("Usuário {} descurtiu a postagem {}", userId, postId);
         return true;
     }
 
