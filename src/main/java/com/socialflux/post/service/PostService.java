@@ -8,6 +8,8 @@ import com.socialflux.post.domain.Cursor;
 import com.socialflux.post.domain.PostRepository;
 import com.socialflux.post.domain.PostView;
 import com.socialflux.post.domain.UserRef;
+import com.socialflux.audit.AuditEntry;
+import com.socialflux.audit.AuditRecorder;
 import com.socialflux.post.moderation.ContentGuard;
 import com.socialflux.post.web.ApiException;
 import org.springframework.stereotype.Service;
@@ -47,19 +49,21 @@ public class PostService {
     private final PostWriter writer;
     private final PostMediaService media;
     private final ContentGuard contentGuard;
+    private final AuditRecorder audit;
     private final RateLimiter rateLimiter;
     private final PostProperties.Limits limits;
     private final TransactionTemplate tx;
     private final Clock clock;
 
     public PostService(PostRepository posts, AuthorRepository authors, PostWriter writer, PostMediaService media,
-                       ContentGuard contentGuard, RateLimiter rateLimiter, PostProperties properties,
-                       PlatformTransactionManager txManager, Clock clock) {
+                       ContentGuard contentGuard, AuditRecorder audit, RateLimiter rateLimiter,
+                       PostProperties properties, PlatformTransactionManager txManager, Clock clock) {
         this.posts = posts;
         this.authors = authors;
         this.writer = writer;
         this.media = media;
         this.contentGuard = contentGuard;
+        this.audit = audit;
         this.rateLimiter = rateLimiter;
         this.limits = properties.limits();
         this.tx = new TransactionTemplate(txManager);
@@ -84,9 +88,9 @@ public class PostService {
         if (parentId != null && posts.findVisible(author, parentId).isEmpty()) {
             throw ApiException.postNotFound();   // checagem barata antes de processar a imagem; a definitiva é na transação
         }
-        contentGuard.requireAllowedText(body);   // moderação do texto, antes de processar ou gravar qualquer imagem
+        contentGuard.requireAllowedText(author, body);   // moderação do texto, antes de processar ou gravar qualquer imagem
 
-        List<PostMediaService.Stored> stored = hasImage ? media.storeAll(images) : List.of();
+        List<PostMediaService.Stored> stored = hasImage ? media.storeAll(author, images) : List.of();
         UUID id = EventIds.v7(clock);
         try {
             tx.executeWithoutResult(status -> {
@@ -168,7 +172,12 @@ public class PostService {
             if (!post.authorId().equals(viewer)) {
                 throw ApiException.forbidden("forbidden", "Você só pode excluir as suas postagens");
             }
-            writer.deleteTree(post.id(), post.parentId());
+            int removed = writer.deleteTree(post.id(), post.parentId());
+            // Hoje só o autor exclui; "deletedBy" já distingue quem apagou para quando houver outro caminho (moderação).
+            audit.inTransaction(AuditEntry.success(post.parentId() == null ? "POST_DELETED" : "REPLY_DELETED")
+                    .actor(viewer).target("POST", post.id())
+                    .detail("deletedBy", "AUTHOR")
+                    .detail("deletedItems", removed));
         });
     }
 

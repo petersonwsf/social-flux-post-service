@@ -37,16 +37,16 @@ public class ModerationPolicy {
             return selfHarm;
         }
         if (reaches(scores, HATE_THREATENING, thresholds.hateThreatening())) {
-            return new Verdict(Verdict.Kind.FORBIDDEN, HATE_THREATENING);
+            return new Verdict(Verdict.Kind.FORBIDDEN, HATE_THREATENING, scores.get(HATE_THREATENING));
         }
         if (reaches(scores, HARASSMENT_THREATENING, thresholds.harassmentThreatening())) {
-            return new Verdict(Verdict.Kind.FORBIDDEN, HARASSMENT_THREATENING);
+            return new Verdict(Verdict.Kind.FORBIDDEN, HARASSMENT_THREATENING, scores.get(HARASSMENT_THREATENING));
         }
         if (reaches(scores, HATE, thresholds.hate())) {
-            return new Verdict(Verdict.Kind.FORBIDDEN, HATE);
+            return new Verdict(Verdict.Kind.FORBIDDEN, HATE, scores.get(HATE));
         }
         if (reaches(scores, VIOLENCE_GRAPHIC, thresholds.violenceGraphic())) {
-            return new Verdict(Verdict.Kind.FORBIDDEN, VIOLENCE_GRAPHIC);
+            return new Verdict(Verdict.Kind.FORBIDDEN, VIOLENCE_GRAPHIC, scores.get(VIOLENCE_GRAPHIC));
         }
         return Verdict.ALLOWED;
     }
@@ -58,10 +58,10 @@ public class ModerationPolicy {
             return selfHarm;
         }
         if (reaches(scores, SEXUAL, thresholds.sexual())) {
-            return new Verdict(Verdict.Kind.FORBIDDEN, SEXUAL);
+            return new Verdict(Verdict.Kind.FORBIDDEN, SEXUAL, scores.get(SEXUAL));
         }
         if (reaches(scores, VIOLENCE_GRAPHIC, thresholds.violenceGraphic())) {
-            return new Verdict(Verdict.Kind.FORBIDDEN, VIOLENCE_GRAPHIC);
+            return new Verdict(Verdict.Kind.FORBIDDEN, VIOLENCE_GRAPHIC, scores.get(VIOLENCE_GRAPHIC));
         }
         return Verdict.ALLOWED;
     }
@@ -69,7 +69,7 @@ public class ModerationPolicy {
     private static Verdict selfHarm(Map<String, Double> scores, double threshold) {
         for (String category : new String[]{SELF_HARM, SELF_HARM_INTENT, SELF_HARM_INSTRUCTIONS}) {
             if (reaches(scores, category, threshold)) {
-                return new Verdict(Verdict.Kind.SELF_HARM, category);
+                return new Verdict(Verdict.Kind.SELF_HARM, category, scores.get(category));
             }
         }
         return null;

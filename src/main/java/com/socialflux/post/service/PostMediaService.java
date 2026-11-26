@@ -76,7 +76,7 @@ public class PostMediaService {
      * conjunto: até {@code MAX_IMAGES} e GIF só sozinho. Depois da moderação (que recusa tudo se uma imagem violar as
      * regras), grava; se gravar um falhar, apaga os já gravados.
      */
-    public List<Stored> storeAll(List<byte[]> uploads) {
+    public List<Stored> storeAll(UUID author, List<byte[]> uploads) {
         if (uploads.size() > MAX_IMAGES) {
             throw ApiException.unprocessable("imagens_demais", "Envie no máximo " + MAX_IMAGES + " imagens por postagem");
         }
@@ -84,7 +84,7 @@ public class PostMediaService {
         if (processed.size() > 1 && processed.stream().anyMatch(m -> m.kind() == ProcessedMedia.Kind.GIF)) {
             throw ApiException.unprocessable("gif_deve_ficar_sozinho", "Um GIF não pode ser enviado junto com outras imagens");
         }
-        contentGuard.requireAllowedImages(processed);   // moderação ANTES de gravar qualquer objeto (recusa = nada gravado)
+        contentGuard.requireAllowedImages(author, processed);   // moderação ANTES de gravar qualquer objeto (recusa = nada gravado)
         List<Stored> stored = new ArrayList<>();
         try {
             for (ProcessedMedia media : processed) {
