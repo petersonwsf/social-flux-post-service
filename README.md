@@ -100,6 +100,21 @@ Consome (idempotente por inbox; tipos desconhecidos e `aggregateVersion` antigo 
 | `CounterReconciler` | `POST_RECONCILER_INTERVAL` (1 h; 1ª após 5 min) | recalcula `likes_count`/`replies_count` por `count(*)` (até `POST_RECONCILER_BATCH` por rodada) e corrige, registrando quantos divergiam |
 | Relay/expurgo do outbox | biblioteca de eventos | publica os pendentes e expurga os publicados após 7 dias |
 
+## Auditoria central
+
+Eventos de auditoria (quem fez o quê, em quê, quando e de onde) vão para o **audit-service** (aplicação `social-flux`, serviço
+`post`) pela biblioteca `libs/socialflux-audit`: cada evento é gravado na tabela `audit_outbox` **na mesma transação da
+ação** (ou em transação própria, quando precisa sobreviver a um rollback) e um relay o envia em lote. Se o audit-service cair,
+os eventos esperam na outbox. Com `AUDIT_ENABLED=false` (padrão) o envio fica desligado.
+
+| Ação | Quando | Detalhe (`detail`) |
+| --- | --- | --- |
+| `POST_DELETED` / `REPLY_DELETED` | exclusão de uma postagem / resposta (na transação) | `deletedBy` (`AUTHOR`) e `deletedItems` (itens removidos com a subárvore); alvo: a postagem |
+| `CONTENT_REFUSED` | a moderação recusou um texto ou imagem (`outcome=DENIED`, em transação própria, sobrevive ao rollback) | `contentType` (`TEXT`/`IMAGE`), `verdict` (`FORBIDDEN`/`SELF_HARM`), `category` e `score`; **nunca o conteúdo** |
+
+Nunca vão para a auditoria: texto, e-mail, telefone, data de nascimento nem o conteúdo editado; só UUIDs, nomes de campos e
+categorias. O IP e o user agent da requisição seguem junto (só para o audit-service, nunca para o log).
+
 ## Logs e rastreabilidade
 
 - Toda requisição carrega o `X-Correlation-Id` (o gateway cria; o `CorrelationIdFilter` de `libs/socialflux-events` o põe no MDC e o devolve na resposta) e gera uma linha de acesso (`Requisição GET /caminho respondeu 200 em 12 ms`, sem query string; health checks e `/internal/auth/verify` ficam em DEBUG). O mesmo id vai nos eventos publicados e é retomado por quem os consome, então um fluxo inteiro (ex.: cadastro → perfil → notificações) se acompanha pelo Loki/Grafana procurando o `correlationId`.
@@ -114,6 +129,7 @@ Consome (idempotente por inbox; tipos desconhecidos e `aggregateVersion` antigo 
 | `POST_DB_USER` / `POST_DB_PASSWORD` | `IDENTITY_DB_USER` / `IDENTITY_DB_PASSWORD` | Credenciais (mesmo role do auth, por padrão) |
 | `AUTH_JWKS_URI`, `JWT_ISSUER`, `JWT_AUDIENCE`, `JWT_CLOCK_SKEW` | iguais aos outros serviços | Validação do token de usuário |
 | `RABBITMQ_HOST/PORT/USER/PASSWORD`, `EVENTS_EXCHANGE`, `POST_EVENTS_ENABLED`, `POST_OUTBOX_INTERVAL` | `localhost`… / `true` / `PT0.5S` | Broker e eventos |
+| `AUDIT_ENABLED`, `AUDIT_URL`, `AUDIT_API_KEY` | `false` / `http://audit-service:8090` / — | Auditoria central: liga o envio, URL do audit-service (rede `audit-net`) e a chave da aplicação `social-flux` (segredo, só no `.env`) |
 | `POST_ALLOWED_ORIGINS` | vazio (= própria origem) | `OriginCheckFilter` |
 | `POST_MAX_BODY` | `1000` | Tamanho máximo do texto (≤ 1000) |
 | `POST_RATE_POSTS_PER_HOUR` / `POST_RATE_LIKES_PER_HOUR` | `60` / `600` | Limites por usuário |

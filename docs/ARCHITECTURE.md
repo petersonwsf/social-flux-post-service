@@ -34,7 +34,7 @@ post_service/
     │   └── events/               filas, listeners e tratadores de eventos consumidos
     ├── main/resources/
     │   ├── application.yml       datasource, multipart (8/9 MB), Tomcat (swallow 16 MB), RabbitMQ, socialflux.events/media e bloco `post.*`
-    │   └── db/migration/        V1__post.sql, V2__remove_legacy_id.sql (remove `author_snapshot.legacy_id`) e V3__post_images.sql (`post_image`: até 5 imagens por postagem)
+    │   └── db/migration/        V1__post.sql, V2__remove_legacy_id.sql (remove `author_snapshot.legacy_id`), V3__post_images.sql (`post_image`: até 5 imagens por postagem) e V4__audit_outbox.sql (`audit_outbox`: eventos de auditoria pendentes de envio ao audit-service)
     └── test/java/com/socialflux/post/
 ```
 
@@ -64,13 +64,13 @@ post_service/
 
 | Arquivo | O que representa |
 | --- | --- |
-| `ContentGuard.java` | Usado por `PostService.create` (texto) e `PostMediaService.storeAll` (imagens, em paralelo): consulta o moderador e traduz o resultado em 422 `conteudo_proibido` / `conteudo_automutilacao`; se o provedor falhar, libera ou recusa com 503 conforme `fail-closed-text` / `fail-closed-images`. Nunca loga o conteúdo |
+| `ContentGuard.java` | Usado por `PostService.create` (texto) e `PostMediaService.storeAll` (imagens, em paralelo): consulta o moderador e traduz o resultado em 422 `conteudo_proibido` / `conteudo_automutilacao`; se o provedor falhar, libera ou recusa com 503 conforme `fail-closed-text` / `fail-closed-images`. Nunca loga o conteúdo; cada recusa vai à auditoria (`CONTENT_REFUSED`, categoria e score, sem o conteúdo) em transação própria |
 | `ContentModerator.java` | Interface: `checkText(texto)` e `checkImage(imagem)` devolvem um `Verdict` ou lançam `ModerationUnavailableException` |
 | `ModerationImage.java` / `ModerationImages.java` | Imagem a analisar (bytes + tipo) e o preparo da mídia já processada: estática vai como está; GIF vai pelo primeiro quadro, em JPEG |
 | `OpenAiContentModerator.java` | Chama `POST /v1/moderations` (`RestClient`, timeout curto; imagem como data URL base64) e lê só os scores das categorias usadas |
 | `NoopContentModerator.java` | Moderador desligado: aprova tudo |
 | `ModerationPolicy.java` | Regras puras sobre os scores de texto e de imagem (limiares de `post.moderation.thresholds`); automutilação tem prioridade |
-| `Verdict.java` / `ModerationUnavailableException.java` | Resultado (`ALLOWED`, `FORBIDDEN`, `SELF_HARM`, com a categoria só para log) e falha do provedor |
+| `Verdict.java` / `ModerationUnavailableException.java` | Resultado (`ALLOWED`, `FORBIDDEN`, `SELF_HARM`, com a categoria e o score só para log e auditoria) e falha do provedor |
 | `ModerationConfig.java` | Escolhe o moderador; ligado sem `POST_MODERATION_API_KEY` falha ao subir |
 
 ### `web/`
@@ -88,7 +88,7 @@ post_service/
 
 | Arquivo | O que representa |
 | --- | --- |
-| `PostService.java` | Regras: criar (valida, processa o anexo fora da transação, transação curta com o pai travado, compensação do objeto), ler, feed (minhas postagens e de quem sigo), lista do autor (403 `conta_privada`), respostas, ancestrais, excluir (trava pai → postagem; 403/404) |
+| `PostService.java` | Regras: criar (valida, processa o anexo fora da transação, transação curta com o pai travado, compensação do objeto), ler, feed (minhas postagens e de quem sigo), lista do autor (403 `conta_privada`), respostas, ancestrais, excluir (trava pai → postagem; 403/404; grava `POST_DELETED`/`REPLY_DELETED` na auditoria) |
 | `LikeService.java` | Curtir/descurtir idempotentes com a postagem travada e limite por hora |
 | `PostWriter.java` | Mecanismos na transação do chamador (`MANDATORY`): inserir + contador do pai + `post.created.v1`; excluir subárvore + contador + `post.deleted.v1` por nó + remoção de imagens após o commit; curtir/descurtir + contador + evento |
 | `PostMediaService.java` | Processa e grava os anexos (até 5; GIF só sozinho), compensação, remoção após o commit, entrega com checagem de visibilidade e 304, varredura de órfãos |
@@ -126,6 +126,7 @@ post_service/
 | --- | --- |
 | `support/AbstractPostTest.java` | Sobe o serviço com PostgreSQL embutido, JWKS local e mídia em memória; usuários e arestas por eventos; atalhos HTTP; geração de PNG/GIF; invariante dos contadores |
 | `support/Http.java` / `support/TestSupportConfig.java` | Cliente HTTP (JSON e multipart) e publicador de eventos em memória (simula broker fora do ar) |
+| `AuditTest.java` | Auditoria central: recusas da moderação (texto e imagem, sem o conteúdo) e exclusões de postagem/resposta |
 | `SecurityTest.java` | Token ausente/adulterado/expirado/audiência errada/de serviço, CSRF, health público |
 | `SyncTest.java` | Eventos de perfil duplicados/antigos/desconhecidos, túmulo, arestas fora de ordem, exclusão de conta completa |
 | `PostFlowTest.java` | Contrato da postagem, regras de conteúdo, só imagem (LOG-08), autor desconhecido, respostas, pai invisível, exclusão (403/404/cascata, LOG-03, LOG-05), ancestrais |
